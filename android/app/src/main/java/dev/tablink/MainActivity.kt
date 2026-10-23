@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.util.Log
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 private val Blue = Color(0xFF1E5AA8)
@@ -62,6 +64,10 @@ private val Blue = Color(0xFF1E5AA8)
 
 /** One screen: connection status and the two one-tap actions. */
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_OPEN_LAPTOP = "open_laptop"
+    }
+
     private val client by lazy { ControlClient({ Secrets.token(this) }) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +84,7 @@ class MainActivity : ComponentActivity() {
             // Started again from onResume once in the foreground.
         }
         enableEdgeToEdge()
+        openLaptopIfAsked(intent)
         setContent {
             val dark = isSystemInDarkTheme()
             MaterialTheme(
@@ -86,6 +93,24 @@ class MainActivity : ComponentActivity() {
             ) {
                 Surface(modifier = Modifier.fillMaxSize()) { TabLinkScreen(client) }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openLaptopIfAsked(intent)
+    }
+
+    /** The laptop's "Laptop on tab" button (and `tablink remote`) open the session this way. */
+    private fun openLaptopIfAsked(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_LAPTOP, false) != true) return
+        intent.removeExtra(EXTRA_OPEN_LAPTOP)
+        lifecycleScope.launch {
+            LaptopConnection.absorbPendingPassword(this@MainActivity)
+            val id = LaptopConnection.bookmarkId(this@MainActivity)
+            Log.i("TabLink", "open laptop requested; saved connection ${if (id != null) "found" else "missing"}")
+            if (id != null) LaptopConnection.open(this@MainActivity, id)
         }
     }
 

@@ -4,7 +4,6 @@ import pytest
 
 from tablink import config, pairing
 from tablink.adb import Adb
-from tablink.afreerdp_setup import existing_bookmark, find, parse_nodes, row_for
 from tablink.pairing import APKS, Apk, PairError, Pairing, fetch_verified, pick_apks
 from tests.fakes.fake_adb import USB_SERIAL, FakeAdb
 from tests.fakes.fake_grdctl import FakeGrd
@@ -117,26 +116,3 @@ async def test_fetch_rejects_bad_checksum(tmp_path: Path, monkeypatch: pytest.Mo
     with pytest.raises(PairError, match="checksum"):
         await fetch_verified(apk, tmp_path)
     assert not (tmp_path / apk.file).exists()
-
-
-HOME_XML = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0">
-<node text="" resource-id="com.freerdp.afreerdp:id/newBookmark" class="android.widget.Button"
- package="com.freerdp.afreerdp" content-desc="New Connection" bounds="[1150,88][1258,196]" />
-<node text="Laptop" resource-id="com.freerdp.afreerdp:id/bookmark_text1"
- class="android.widget.TextView" package="com.freerdp.afreerdp" bounds="[118,226][1483,293]" />
-<node text="Hostname" resource-id="com.freerdp.afreerdp:id/title" class="android.widget.TextView"
- package="com.freerdp.afreerdp" bounds="[180,529][349,578]" />
-<node text="evil" resource-id="x:id/title" class="android.widget.TextView" package="other.app"
- bounds="[0,0][1,1]" />
-</hierarchy>"""
-
-
-def test_afreerdp_screen_parsing() -> None:
-    nodes = parse_nodes(HOME_XML)
-    assert len(nodes) == 3  # other apps' nodes are ignored
-    assert existing_bookmark(nodes)
-    new = find(nodes, rid="newBookmark")
-    assert new and new.text == "New Connection" and new.box.center == (1204, 142)
-    row = row_for(nodes, "Hostname")
-    assert row and row.box.center == (264, 553)
-    assert parse_nodes("") == [] and parse_nodes("<bad") == []

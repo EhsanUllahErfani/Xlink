@@ -76,10 +76,17 @@ class ClipboardSync:
     async def on_path_changed(self, path: object) -> None:  # clipboard works on any path
         return None
 
-    async def from_tablet(self, text: str) -> None:
+    async def from_tablet(self, text: str) -> bool:
+        """Put tablet text on the laptop clipboard. False if the shell extension is not loaded."""
         text = text[:MAX_TEXT]
+        try:
+            await asyncio.to_thread(self.bridge.set_text, text)
+        except Exception as e:
+            log.info("clipboard extension not loaded yet (log out and back in once): %s",
+                     type(e).__name__)  # fmt: skip
+            return False
         self._last = text  # don't echo it back
-        await asyncio.to_thread(self.bridge.set_text, text)
+        return True
 
     async def check(self) -> None:
         text = await asyncio.to_thread(self.bridge.get_text)

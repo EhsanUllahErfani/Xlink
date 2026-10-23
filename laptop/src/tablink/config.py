@@ -55,18 +55,11 @@ class TailscaleConfig:
 
 
 @dataclass
-class RemoteConfig:
-    # aFreeRDP saved-connection id holding the laptop login; 0 = not created yet.
-    afreerdp_bookmark: int = 0
-
-
-@dataclass
 class Config:
     device: DeviceConfig = field(default_factory=DeviceConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     video: dict[str, VideoPreset] = field(default_factory=_default_presets)
     tailscale: TailscaleConfig = field(default_factory=TailscaleConfig)
-    remote: RemoteConfig = field(default_factory=RemoteConfig)
 
     def remember_tablet_addr(self, addr: str, limit: int = 8) -> None:
         """Put `addr` first in the known address list, keeping the list short."""
@@ -140,13 +133,6 @@ def from_dict(raw: dict[str, Any]) -> Config:
     ts = _section(raw, "tailscale")
     if "enabled" in ts:
         cfg.tailscale.enabled = _expect(ts["enabled"], bool, "tailscale.enabled")
-
-    rem = _section(raw, "remote")
-    if "afreerdp_bookmark" in rem:
-        bm = _expect(rem["afreerdp_bookmark"], int, "remote.afreerdp_bookmark")
-        if bm < 0:
-            raise ConfigError("remote.afreerdp_bookmark: must be 0 or more")
-        cfg.remote.afreerdp_bookmark = bm
 
     return cfg
 

@@ -260,7 +260,6 @@ class Pairing:
         await self.adb.write_app_file(
             serial, TABLINK_PACKAGE, PENDING_PASSWORD_FILE, password.encode()
         )
-        await self.adb.shell(serial, "am", "start", "-n", f"{TABLINK_PACKAGE}/.MainActivity")
         self.progress("ok", "TabLink can open the laptop (no login box)")
 
     async def pair_token(self, serial: str) -> None:
@@ -272,6 +271,9 @@ class Pairing:
         token = control_token(store, create=True)
         assert token is not None
         await self.adb.write_app_file(serial, TABLINK_PACKAGE, PENDING_TOKEN_FILE, token.encode())
+        # Restart TabLink so it takes in both the login and the token now.
+        await self.adb.shell(serial, "am", "force-stop", TABLINK_PACKAGE)
+        await self.adb.shell(serial, "am", "start", "-n", f"{TABLINK_PACKAGE}/.MainActivity")
         self.progress("ok", "Paired (secret kept in your keyring and encrypted on the tablet)")
 
     def clipboard_extension(self) -> None:

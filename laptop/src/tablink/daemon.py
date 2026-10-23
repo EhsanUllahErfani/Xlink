@@ -254,7 +254,12 @@ def build() -> Daemon:
         text = msg.get("text")
         if not isinstance(text, str):
             return {"type": "clip", "ok": False, "message": "no text"}
-        await clipboard.from_tablet(text)
+        if not await clipboard.from_tablet(text):
+            return {
+                "type": "clip",
+                "ok": False,
+                "message": "Log out of the laptop and back in once to turn on clipboard sharing.",
+            }
         return {"type": "clip", "ok": True}
 
     async def notification(msg: dict[str, Any]) -> dict[str, Any]:

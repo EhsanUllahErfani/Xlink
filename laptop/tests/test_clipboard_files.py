@@ -76,3 +76,15 @@ def test_unique_path_never_overwrites(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("1")
     (tmp_path / "a (1).txt").write_text("2")
     assert unique_path(tmp_path, "a.txt").name == "a (2).txt"
+
+
+async def test_from_tablet_without_extension_reports_false() -> None:
+    class Missing(FakeBridge):
+        def set_text(self, text: str) -> None:
+            raise RuntimeError("ServiceUnknown")
+
+    async def push(t: str) -> None:
+        raise AssertionError
+
+    sync = ClipboardSync(Missing(), push)
+    assert await sync.from_tablet("x") is False

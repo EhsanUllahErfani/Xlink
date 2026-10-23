@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.util.Log
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +37,11 @@ class ShareActivity : Activity() {
                 "Sent ${uris.size} file(s) to Downloads/TabLink on the laptop"
             } catch (e: ControlClient.NotPaired) {
                 e.message ?: "Not paired"
+            } catch (e: SecurityException) {
+                Log.w(TAG, "share: no permission to read the file (${e.javaClass.simpleName})")
+                "Could not read that file. Share it from the app that owns it."
             } catch (e: Exception) {
+                Log.w(TAG, "share failed: ${e.javaClass.simpleName}: ${e.message?.take(120)}")
                 "Could not send: is the laptop connected?"
             }
             withContext(Dispatchers.Main) { Toast.makeText(app, result, Toast.LENGTH_LONG).show() }
@@ -82,6 +87,8 @@ class ShareActivity : Activity() {
         return (uri.lastPathSegment ?: "file") to size
     }
 }
+
+private const val TAG = "TabLink"
 
 @Suppress("DEPRECATION")
 private fun Intent.parcelable(key: String): Uri? =

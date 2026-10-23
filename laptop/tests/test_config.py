@@ -109,15 +109,3 @@ def test_config_has_no_secret_fields() -> None:
     keys = str(config.to_dict(Config())).lower()
     for word in ("password", "secret", "token", "key"):
         assert word not in keys
-
-
-def test_remote_bookmark_round_trip(tmp_path: Path) -> None:
-    cfg = Config()
-    assert cfg.remote.afreerdp_bookmark == 0
-    cfg.remote.afreerdp_bookmark = 1
-    config.save(cfg)
-    assert config.load().remote.afreerdp_bookmark == 1
-    p = tmp_path / "c.toml"
-    p.write_text("[remote]\nafreerdp_bookmark = -1\n")
-    with pytest.raises(ConfigError):
-        config.load(p)

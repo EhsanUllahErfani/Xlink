@@ -132,7 +132,7 @@ def cmd_remote(args: argparse.Namespace) -> int:
             desktop_notify("Could not show the laptop on the tablet", str(e), True)
             return 1
         desktop_notify("TabLink", msg)
-        return 0 if msg.startswith(("The laptop", "aFreeRDP")) else 1
+        return 0
 
     return asyncio.run(run())
 
@@ -140,7 +140,6 @@ def cmd_remote(args: argparse.Namespace) -> int:
 def cmd_pair(args: argparse.Namespace) -> int:
     from tablink.adb import Adb, AdbError
     from tablink.pairing import PairError, Pairing
-    from tablink.remote_session import FocusLost
     from tablink.services.remote_desktop import RemoteDesktopError
 
     s = Style(sys.stdout)
@@ -158,7 +157,7 @@ def cmd_pair(args: argparse.Namespace) -> int:
     print(s.bold("TabLink setup") + s.dim("  (safe to run again; finished steps are skipped)"))
     try:
         asyncio.run(Pairing(Adb(), progress).run())
-    except (PairError, FocusLost) as e:
+    except PairError as e:
         progress("fail", str(e))
         return 1
     except (AdbError, RemoteDesktopError, OSError) as e:
