@@ -30,15 +30,22 @@ def make(fake: FakeAdb, tmp_path: Path) -> tuple[Pairing, Log]:
         p.write_bytes(b"apk")
         return p
 
-    return Pairing(Adb(runner=fake, adb_path="adb"), log, rd=rd, fetch=fetch), log
+    from tablink.secrets import MemoryStore
+
+    pairing_ = Pairing(
+        Adb(runner=fake, adb_path="adb"),
+        log,
+        rd=rd,
+        fetch=fetch,
+        token_store=MemoryStore(),
+        extensions_dir=tmp_path / "ext",
+        enable_extension=lambda uuid: True,
+    )
+    return pairing_, log
 
 
-def test_pick_apks_by_cpu() -> None:
-    arm64 = pick_apks(["arm64-v8a", "armeabi-v7a"])
-    assert {a.package: a.abi for a in arm64}["com.freerdp.afreerdp"] == "arm64-v8a"
-    arm32 = pick_apks(["armeabi-v7a"])
-    assert {a.package: a.abi for a in arm32}["com.freerdp.afreerdp"] == "armeabi-v7a"
-    assert all(len(a.sha256) == 64 for a in APKS)
+def test_no_third_party_apps_needed() -> None:
+    assert pick_apks(["arm64-v8a"]) == [] and APKS == []
 
 
 async def test_unauthorized_tablet_gets_clear_instruction(tmp_path: Path) -> None:
@@ -55,19 +62,20 @@ async def test_missing_hyperos_switches_are_named(tmp_path: Path) -> None:
         await p.check_switches(USB_SERIAL)
 
 
-async def test_install_skips_up_to_date_apps(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(pairing, "tablink_apk", lambda: None)
-    fake = FakeAdb(packages={"org.kde.kdeconnect_tp": 13600})
-    p, log = make(fake, tmp_path)
+async def test_installs_tablink_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    apk = tmp_path / "app-debug.apk"
+    apk.write_bytes(b"apk")
+    monkeypatch.setattr(pairing, "tablink_apk", lambda: apk)
+    fake = FakeAdb()
+    p, _ = make(fake, tmp_path)
     await p.install_apps(USB_SERIAL)
-    assert [Path(x).name for x in fake.installed] == ["com.freerdp.afreerdp_3320103.apk"]
-    assert ("skip", "org.kde.kdeconnect_tp is already installed") in log.lines
+    assert fake.installed == [str(apk)]
 
 
 async def test_refused_install_explains(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(pairing, "tablink_apk", lambda: None)
+    apk = tmp_path / "app-debug.apk"
+    apk.write_bytes(b"apk")
+    monkeypatch.setattr(pairing, "tablink_apk", lambda: apk)
     p, _ = make(FakeAdb(refuse_install=True), tmp_path)
     with pytest.raises(PairError, match="Install via USB"):
         await p.install_apps(USB_SERIAL)
@@ -82,19 +90,22 @@ async def test_wifi_step_remembers_tablet_and_enables_tcp(tmp_path: Path) -> Non
     assert cfg.device.tablet_serial == USB_SERIAL and fake.tcpip_enabled
 
 
-async def test_full_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_full_run_hands_password_to_tablink_via_stdin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("DEBUG")
     monkeypatch.setattr(pairing, "tablink_apk", lambda: None)
-
-    async def fake_setup(self: object, host: str, port: int, user: str, pw: str) -> bool:
-        assert (host, port, user) == ("127.0.0.1", 3389, "tablink") and len(pw) == 24
-        return True
-
-    monkeypatch.setattr(pairing.AFreeRdpSetup, "run", fake_setup)
-    p, log = make(FakeAdb(), tmp_path)
+    fake = FakeAdb()
+    p, log = make(fake, tmp_path)
     await p.run()
     assert log.lines[-1][0] == "ok"
-    assert config.load().remote.afreerdp_bookmark == 1
-    assert all("tablink" not in t or len(t) < 200 for _, t in log.lines)
+    pw = fake.app_files["dev.tablink/rdp-password.pending"].decode()
+    assert len(pw) == 24
+    token = fake.app_files["dev.tablink/control-token.pending"].decode()
+    assert len(token) == 64 and p.token_store.get() == token  # type: ignore[attr-defined]
+    assert (tmp_path / "ext" / "tablink@dev.tablink" / "extension.js").exists()
+    assert all(pw not in " ".join(c) for c in fake.calls)  # never on a command line
+    assert pw not in caplog.text and all(pw not in t for _, t in log.lines)
 
 
 async def test_fetch_rejects_bad_checksum(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -102,9 +113,10 @@ async def test_fetch_rejects_bad_checksum(tmp_path: Path, monkeypatch: pytest.Mo
         dest.write_bytes(b"tampered")
 
     monkeypatch.setattr(pairing, "_download", fake_download)
+    apk = Apk("org.example.app", 1, "org.example.app_1.apk", "0" * 64)
     with pytest.raises(PairError, match="checksum"):
-        await fetch_verified(APKS[0], tmp_path)
-    assert not (tmp_path / APKS[0].file).exists()
+        await fetch_verified(apk, tmp_path)
+    assert not (tmp_path / apk.file).exists()
 
 
 HOME_XML = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0">

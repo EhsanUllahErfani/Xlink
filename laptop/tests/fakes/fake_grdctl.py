@@ -36,7 +36,9 @@ class FakeGrd:
             f"\tPassword: {pw}\n"
         )
 
-    async def __call__(self, argv: Sequence[str], timeout: float) -> RunResult:
+    async def __call__(
+        self, argv: Sequence[str], timeout: float, input: bytes | None = None
+    ) -> RunResult:
         a = list(argv)
         self.calls.append(a)
         if a[0] == "openssl":

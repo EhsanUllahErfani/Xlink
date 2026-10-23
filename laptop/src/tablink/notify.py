@@ -19,13 +19,19 @@ class Notifier(Protocol):
     def __call__(self, title: str, body: str = "", urgent: bool = False) -> None: ...
 
 
+def private_notify(title: str, body: str = "") -> None:
+    """Show a notification whose text is private (from the tablet): never printed or logged."""
+    desktop_notify(title, body, echo=False)
+
+
 def stderr_notify(title: str, body: str = "", urgent: bool = False) -> None:
     print(f"{title}{': ' + body if body else ''}", file=sys.stderr)
 
 
-def desktop_notify(title: str, body: str = "", urgent: bool = False) -> None:
-    """Show a GNOME notification; also print it, so terminal users see it too."""
-    stderr_notify(title, body, urgent)
+def desktop_notify(title: str, body: str = "", urgent: bool = False, echo: bool = True) -> None:
+    """Show a GNOME notification; also print it (unless echo=False) for terminal users."""
+    if echo:
+        stderr_notify(title, body, urgent)
     try:
         import gi
 

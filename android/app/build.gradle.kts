@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "dev.tablink"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "dev.tablink"
@@ -42,6 +42,19 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
+
+    // The RDP engine: FreeRDP's freeRDPCore, built from source by scripts/build-freerdp.sh,
+    // plus the libraries it is built against.
+    implementation(files("libs/freeRDPCore-release.aar"))
+    implementation(libs.freerdp.appcompat)
+    implementation(libs.freerdp.core)
+    implementation(libs.freerdp.preference)
+    implementation(libs.freerdp.recyclerview)
+    implementation(libs.freerdp.lifecycle.viewmodel)
+    implementation(libs.freerdp.lifecycle.livedata)
+    implementation(libs.freerdp.room.runtime)
+    implementation(libs.freerdp.sqlcipher) { artifact { type = "aar" } }
+    implementation(libs.freerdp.sqlite)
 
     testImplementation(libs.junit)
 }

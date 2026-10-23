@@ -1,0 +1,7 @@
+{
+  "uuid": "tablink@dev.tablink",
+  "name": "TabLink clipboard",
+  "description": "Lets the TabLink daemon share the clipboard with your tablet. GNOME on Wayland only lets the shell read the clipboard in the background.",
+  "shell-version": ["50"],
+  "url": "https://github.com/EhsanUllahErfani/Xlink"
+}

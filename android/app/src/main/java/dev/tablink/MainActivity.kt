@@ -1,10 +1,15 @@
 package dev.tablink
 
-import android.content.ActivityNotFoundException
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -53,29 +58,25 @@ import kotlinx.coroutines.launch
 
 private val Blue = Color(0xFF1E5AA8)
 
-private const val AFREERDP = "com.freerdp.afreerdp"
-private const val AFREERDP_SESSION = "com.freerdp.freerdpcore.presentation.SessionActivity"
 
-/** Open a saved aFreeRDP connection: it holds the login, so no password box appears. */
-private fun openSavedConnection(context: Context, conRef: String): Boolean =
-    try {
-        context.startActivity(
-            Intent()
-                .setComponent(ComponentName(AFREERDP, AFREERDP_SESSION))
-                .putExtra("conRef", conRef)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
-        true
-    } catch (e: ActivityNotFoundException) {
-        false
-    }
 
 /** One screen: connection status and the two one-tap actions. */
 class MainActivity : ComponentActivity() {
-    private val client = ControlClient()
+    private val client by lazy { ControlClient({ Secrets.token(this) }) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Secrets.absorbPendingToken(this)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+        try {
+            LinkService.start(this)
+        } catch (e: Exception) {
+            // Started again from onResume once in the foreground.
+        }
         enableEdgeToEdge()
         setContent {
             val dark = isSystemInDarkTheme()
@@ -86,6 +87,17 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) { TabLinkScreen(client) }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!LinkService.running) LinkService.start(this)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Android lets only the focused app read the clipboard: send it now if it is new.
+        if (hasFocus) LinkService.sendClipboard(this)
     }
 }
 
@@ -99,6 +111,7 @@ private fun TabLinkScreen(client: ControlClient) {
     var message by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
+        LaptopConnection.absorbPendingPassword(context)
         while (true) {
             if (!busy) {
                 val m = client.linkMode()
@@ -117,8 +130,15 @@ private fun TabLinkScreen(client: ControlClient) {
             message = try {
                 val reply = client.send(type)
                 connected = true
-                if (reply.ok && reply.conRef.isNotEmpty() && !openSavedConnection(context, reply.conRef)) {
-                    "aFreeRDP is not installed on this tablet."
+                if (type == "remote_ready" && reply.ok) {
+                    // The laptop made sure remote desktop and the tunnel are up; open it here.
+                    val id = LaptopConnection.bookmarkId(context)
+                    if (id == null) {
+                        "Not paired yet. On the laptop, run: tablink pair"
+                    } else {
+                        LaptopConnection.open(context, id)
+                        ""
+                    }
                 } else {
                     reply.message.ifEmpty { if (reply.ok) "Done." else "That didn't work." }
                 }
@@ -167,6 +187,7 @@ private fun TabLinkScreen(client: ControlClient) {
                     Text(message, textAlign = TextAlign.Center, fontSize = 15.sp)
                 }
             }
+            Checklist()
             if (connected == false) {
                 TextButton(onClick = {
                     scope.launch {
@@ -193,5 +214,74 @@ private fun StatusLine(connected: Boolean?, mode: String) {
         Box(Modifier.size(10.dp).clip(CircleShape).background(color))
         Spacer(Modifier.size(8.dp))
         Text(text, fontSize = 16.sp)
+    }
+}
+
+
+/** HyperOS stops background apps unless allowed; these three switches keep TabLink linked. */
+@Composable
+private fun Checklist() {
+    val context = LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_000)
+            tick++
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") tick
+    val pm = context.getSystemService(PowerManager::class.java)
+    val battery = pm.isIgnoringBatteryOptimizations(context.packageName)
+    val notifAccess = Settings.Secure.getString(
+        context.contentResolver, "enabled_notification_listeners",
+    )?.contains(context.packageName) == true
+    if (battery && notifAccess) return
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("Finish setting up", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        if (!battery) {
+            TextButton(onClick = { openBatterySettings(context) }) {
+                Text("1. Battery: set TabLink to \u201cNo restrictions\u201d")
+            }
+            TextButton(onClick = { openAutostart(context) }) {
+                Text("2. Turn on Autostart for TabLink")
+            }
+        }
+        if (!notifAccess) {
+            TextButton(onClick = {
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }) {
+                Text("3. Allow notification access (shows tablet notifications on the laptop)")
+            }
+        }
+    }
+}
+
+private fun openBatterySettings(context: Context) {
+    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+        .setData(Uri.parse("package:${context.packageName}"))
+    try {
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+}
+
+private fun openAutostart(context: Context) {
+    val miui = Intent().setComponent(
+        ComponentName(
+            "com.miui.securitycenter",
+            "com.miui.permcenter.autostart.AutoStartManagementActivity",
+        ),
+    )
+    try {
+        context.startActivity(miui)
+    } catch (e: Exception) {
+        context.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:${context.packageName}")),
+        )
     }
 }

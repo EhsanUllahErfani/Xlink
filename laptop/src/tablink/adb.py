@@ -115,6 +115,7 @@ class Adb:
         timeout: float = DEFAULT_TIMEOUT_S,
         check: bool = True,
         quiet_args: bool = False,
+        input: bytes | None = None,
     ) -> RunResult:
         argv = [self.adb_path]
         if serial:
@@ -122,7 +123,7 @@ class Adb:
         argv += args
         log.debug("adb %s", "<hidden>" if quiet_args else " ".join(argv[1:]))
         try:
-            res = await self._runner(argv, timeout)
+            res = await self._runner(argv, timeout, input=input)
         except FileNotFoundError as e:
             raise AdbNotFound(str(e)) from e
         except TimeoutError as e:
@@ -289,6 +290,18 @@ class Adb:
         if not re.fullmatch(r"[A-Za-z0-9]+", text):
             raise ValueError("secret must be letters and digits")
         await self._run("shell", "input", "text", text, serial=serial, quiet_args=True)
+
+    async def write_app_file(self, serial: str, package: str, name: str, data: bytes) -> None:
+        """Write `data` into an app's private files/ directory (debuggable apps, via run-as).
+
+        The data goes through stdin, so secrets never appear on any command line or log.
+        """
+        if not _PACKAGE.fullmatch(package) or not re.fullmatch(r"[\w.-]+", name):
+            raise ValueError("bad package or file name")
+        script = f"umask 077; mkdir -p files && cat > files/{name}"
+        await self._run(
+            "shell", "run-as", package, "sh", "-c", f"'{script}'", serial=serial, input=data
+        )
 
     async def tap(self, serial: str, x: int, y: int) -> None:
         await self.shell(serial, "input", "tap", str(x), str(y))

@@ -21,19 +21,25 @@ class RunResult:
     stderr: str
 
 
-Runner = Callable[[Sequence[str], float], Awaitable[RunResult]]
+class Runner(Protocol):
+    def __call__(
+        self, argv: Sequence[str], timeout: float, input: bytes | None = None
+    ) -> Awaitable[RunResult]: ...
 
 
-async def subprocess_runner(argv: Sequence[str], timeout: float) -> RunResult:
+async def subprocess_runner(
+    argv: Sequence[str], timeout: float, input: bytes | None = None
+) -> RunResult:
+    """Run a program. `input` goes to its stdin (used for secrets: never put them in argv)."""
     proc = await asyncio.create_subprocess_exec(
         *argv,
-        stdin=asyncio.subprocess.DEVNULL,
+        stdin=asyncio.subprocess.PIPE if input is not None else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
         async with asyncio.timeout(timeout):
-            out, err = await proc.communicate()
+            out, err = await proc.communicate(input)
     except TimeoutError:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()

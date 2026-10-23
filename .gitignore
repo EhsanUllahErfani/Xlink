@@ -26,3 +26,7 @@ captures/
 *.pem
 *.key
 .env
+
+# FreeRDP source and the library built from it (android/scripts/build-freerdp.sh)
+android/third_party/
+android/app/libs/*.aar

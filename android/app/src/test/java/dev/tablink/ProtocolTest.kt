@@ -62,4 +62,29 @@ class ProtocolTest {
         assertEquals("lan", r.mode)
         assertEquals("Wi-Fi", Protocol.modeLabel(r.mode))
     }
+
+    @Test
+    fun clipRoundTripsAwkwardText() {
+        val text = "line1\nline2\t\"quoted\" \\ back é 😀 \u0001"
+        val r = Protocol.parse(Protocol.clip(text).trim())
+        assertEquals("clip", r.type)
+        assertEquals(text, r.message)
+    }
+
+    @Test
+    fun hmacMatchesLaptop() {
+        // Python: hmac.new(b"secret", b"abc", hashlib.sha256).hexdigest()
+        assertEquals(
+            "9946dad4e00e913fc8be8e5d3f7e110a4a9e832f83fb09c345285d78638d8a0e",
+            ControlClient.hmac("secret", "abc"),
+        )
+    }
+
+    @Test
+    fun fileHeaderEscapesName() {
+        assertEquals(
+            "{\"type\":\"file\",\"name\":\"a\\\"b.jpg\",\"size\":10}\n",
+            Protocol.fileHeader("a\"b.jpg", 10),
+        )
+    }
 }

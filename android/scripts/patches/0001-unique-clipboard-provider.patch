@@ -1,0 +1,28 @@
+# Gives the TabLink build its own clipboard-provider name, so it can be installed
+# next to aFreeRDP or any other app built on FreeRDP (Android refuses duplicate names).
+diff --git a/client/Android/Studio/freeRDPCore/src/main/AndroidManifest.xml b/client/Android/Studio/freeRDPCore/src/main/AndroidManifest.xml
+index e44f97b..04a003f 100644
+--- a/client/Android/Studio/freeRDPCore/src/main/AndroidManifest.xml
++++ b/client/Android/Studio/freeRDPCore/src/main/AndroidManifest.xml
+@@ -109,7 +109,7 @@
+ 
+         <provider
+             android:name=".utils.ClipboardImageProvider"
+-            android:authorities="com.freerdp.freerdpcore.clipboard"
++            android:authorities="dev.tablink.freerdp.clipboard"
+             android:exported="false"
+             android:grantUriPermissions="true" />
+ 
+diff --git a/client/Android/Studio/freeRDPCore/src/main/java/com/freerdp/freerdpcore/utils/ClipboardImageProvider.java b/client/Android/Studio/freeRDPCore/src/main/java/com/freerdp/freerdpcore/utils/ClipboardImageProvider.java
+index 519e0b7..2591d3d 100644
+--- a/client/Android/Studio/freeRDPCore/src/main/java/com/freerdp/freerdpcore/utils/ClipboardImageProvider.java
++++ b/client/Android/Studio/freeRDPCore/src/main/java/com/freerdp/freerdpcore/utils/ClipboardImageProvider.java
+@@ -21,7 +21,7 @@ import java.io.OutputStream;
+ 
+ public class ClipboardImageProvider extends ContentProvider
+ {
+-	public static final String AUTHORITY = "com.freerdp.freerdpcore.clipboard";
++	public static final String AUTHORITY = "dev.tablink.freerdp.clipboard";
+ 	public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/image");
+ 
+ 	private static volatile byte[] sImageData;

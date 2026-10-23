@@ -26,6 +26,8 @@ class FakeAdb:
     pushed: list[tuple[str, str]] = field(default_factory=list)
     stopped: list[str] = field(default_factory=list)
     installed: list[str] = field(default_factory=list)
+    last_input: bytes | None = None
+    app_files: dict[str, bytes] = field(default_factory=dict)
     # Window focus, as (package, class); a list is consumed one entry per focus query.
     focus: list[tuple[str, str]] = field(default_factory=lambda: [("com.miui.home", "L")])
     ui_xml: str | list[str] = ""
@@ -47,9 +49,12 @@ class FakeAdb:
     fail_next: str | None = None  # stderr for the next call, which then exits 1
     timeout_next: bool = False
 
-    async def __call__(self, argv: Sequence[str], timeout: float) -> RunResult:
+    async def __call__(
+        self, argv: Sequence[str], timeout: float, input: bytes | None = None
+    ) -> RunResult:
         args = list(argv[1:])
         self.calls.append(args)
+        self.last_input = input
         if self.timeout_next:
             self.timeout_next = False
             raise TimeoutError
@@ -185,6 +190,10 @@ class FakeAdb:
             return RunResult(0, "Starting: Intent { ... }\n", "")
         if rest[:2] == ["am", "force-stop"]:
             self.stopped.append(rest[2])
+            return RunResult(0, "", "")
+        if rest[:1] == ["run-as"]:
+            name = rest[-1].rsplit("files/", 1)[-1].rstrip("'")
+            self.app_files[f"{rest[1]}/{name}"] = self.last_input or b""
             return RunResult(0, "", "")
         if rest[:1] == ["echo"]:
             return RunResult(0, " ".join(rest[1:]) + "\n", "")

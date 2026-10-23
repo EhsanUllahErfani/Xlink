@@ -1,9 +1,9 @@
 """`tablink pair`: one-time setup over USB. Every step is skipped when already done.
 
 1. Find the tablet and check the developer switches HyperOS needs.
-2. Install the tablet apps (TabLink, aFreeRDP, KDE Connect), checksums verified.
+2. Install the TabLink tablet app (remote desktop, files, clipboard and notifications in one).
 3. Turn on GNOME Remote Desktop with a random password.
-4. Create aFreeRDP's saved "Laptop" connection (no login box afterwards).
+4. Give the password to TabLink, which keeps it encrypted (no login box ever).
 5. Prepare Wi-Fi (adb over TCP) and remember the tablet.
 """
 
@@ -20,12 +20,15 @@ from pathlib import Path
 
 from tablink import config as config_mod
 from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError, Device
-from tablink.afreerdp_setup import AFreeRdpSetup
-from tablink.remote_session import AFREERDP
+from tablink.secrets import Store
 
 log = logging.getLogger(__name__)
 
 FDROID = "https://f-droid.org/repo/"
+TABLINK_PACKAGE = "dev.tablink"
+PENDING_PASSWORD_FILE = "rdp-password.pending"  # LaptopConnection.PENDING_FILE in the app
+PENDING_TOKEN_FILE = "control-token.pending"  # Pairing.PENDING_TOKEN_FILE in the app
+EXTENSION_UUID = "tablink@dev.tablink"
 
 
 @dataclass(frozen=True)
@@ -37,29 +40,10 @@ class Apk:
     abi: str = ""  # "" = works on every CPU
 
 
-# Pinned builds, verified against F-Droid's index (sha256) when they were added.
-APKS = [
-    Apk(
-        "org.kde.kdeconnect_tp",
-        13600,
-        "org.kde.kdeconnect_tp_13600.apk",
-        "ab8f655b3f3a4a9dacace69cfea4d062fe115f7910c33f14802b589e17bd8b37",
-    ),
-    Apk(
-        AFREERDP,
-        3320103,
-        "com.freerdp.afreerdp_3320103.apk",
-        "520403bf41dec2e4599ddd22ab2bd7597f64867ec422c5e2fa46da259cac668e",
-        abi="arm64-v8a",
-    ),
-    Apk(
-        AFREERDP,
-        3320102,
-        "com.freerdp.afreerdp_3320102.apk",
-        "0fca0a60d1854ace8c2c768919c7e4806b3b4bebdfb03a1609314b617158c535",
-        abi="armeabi-v7a",
-    ),
-]
+# Third-party tablet apps TabLink needs. None today: remote desktop (FreeRDP), files,
+# clipboard and notifications are all built into the TabLink app. Entries are pinned builds,
+# verified against F-Droid's index (sha256).
+APKS: list[Apk] = []
 
 Progress = Callable[[str, str], None]  # (state, text): state is "run", "ok", "skip", "wait", "fail"
 
@@ -124,6 +108,31 @@ def tablink_apk() -> Path | None:
     return None
 
 
+def extension_source() -> Path | None:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        p = parent / "data" / "gnome-shell-extension" / EXTENSION_UUID
+        if p.is_dir():
+            return p
+    return None
+
+
+def enable_gnome_extension(uuid: str) -> bool:
+    """Add the extension to GNOME's enabled list. Returns False if it already was."""
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
+
+    settings = Gio.Settings.new("org.gnome.shell")
+    enabled = list(settings.get_strv("enabled-extensions"))
+    if uuid in enabled:
+        return False
+    settings.set_strv("enabled-extensions", [*enabled, uuid])
+    Gio.Settings.sync()
+    return True
+
+
 class Pairing:
     def __init__(
         self,
@@ -133,7 +142,15 @@ class Pairing:
         cfg_load: Callable[[], config_mod.Config] = config_mod.load,
         cfg_save: Callable[[config_mod.Config], object] = config_mod.save,
         fetch: Callable[[Apk], object] | None = None,
+        token_store: Store | None = None,
+        extensions_dir: Path | None = None,
+        enable_extension: Callable[[str], bool] | None = None,
     ) -> None:
+        self.token_store = token_store
+        self.extensions_dir = extensions_dir or (
+            Path.home() / ".local" / "share" / "gnome-shell" / "extensions"
+        )
+        self.enable_extension = enable_extension or enable_gnome_extension
         self.adb = adb
         self.progress = progress
         self.rd = rd
@@ -195,7 +212,7 @@ class Pairing:
         own = tablink_apk()
         if own is None:
             self.progress("skip", "TabLink tablet app: no build found (set TABLINK_APK)")
-        elif await self._same_build_installed(serial, own, "dev.tablink"):
+        elif await self._same_build_installed(serial, own, TABLINK_PACKAGE):
             self.progress("skip", "TabLink tablet app is up to date")
         else:
             await self._install(serial, own, "TabLink")
@@ -233,18 +250,46 @@ class Pairing:
         self.progress("ok", "Remote desktop is on (encrypted, random password in your keyring)")
         return password
 
-    async def saved_connection(self, serial: str, password: str) -> None:
-        from tablink.services.remote_desktop import RDP_PORT, RDP_USER
+    async def give_password_to_tablink(self, serial: str, password: str) -> None:
+        """Hand the remote-desktop password to the TabLink app, which keeps it encrypted.
 
-        cfg = self.cfg_load()
-        self.progress("wait", "Creating aFreeRDP's saved login: please don't touch the tablet")
-        created = await AFreeRdpSetup(self.adb, serial).run(
-            "127.0.0.1", RDP_PORT, RDP_USER, password
+        It goes through adb's stdin into the app's private storage; TabLink moves it into its
+        Android-Keystore-encrypted database on start and deletes the file.
+        """
+        self.progress("run", "Giving the TabLink app the laptop login")
+        await self.adb.write_app_file(
+            serial, TABLINK_PACKAGE, PENDING_PASSWORD_FILE, password.encode()
         )
-        if not cfg.remote.afreerdp_bookmark:
-            cfg.remote.afreerdp_bookmark = 1  # aFreeRDP numbers saved connections from 1
-            self.cfg_save(cfg)
-        self.progress("ok" if created else "skip", "aFreeRDP saved login is ready")
+        await self.adb.shell(serial, "am", "start", "-n", f"{TABLINK_PACKAGE}/.MainActivity")
+        self.progress("ok", "TabLink can open the laptop (no login box)")
+
+    async def pair_token(self, serial: str) -> None:
+        """Share the control-channel secret: kept in the GNOME keyring and in TabLink."""
+        from tablink.secrets import KeyringStore, control_token
+
+        self.progress("run", "Pairing the TabLink app with this laptop")
+        store = self.token_store or KeyringStore()
+        token = control_token(store, create=True)
+        assert token is not None
+        await self.adb.write_app_file(serial, TABLINK_PACKAGE, PENDING_TOKEN_FILE, token.encode())
+        self.progress("ok", "Paired (secret kept in your keyring and encrypted on the tablet)")
+
+    def clipboard_extension(self) -> None:
+        """Install the small GNOME Shell extension that lets TabLink share the clipboard."""
+        import shutil
+
+        src = extension_source()
+        if src is None:
+            self.progress("skip", "Clipboard extension: source not found")
+            return
+        dest = self.extensions_dir / EXTENSION_UUID
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in src.iterdir():
+            shutil.copy2(f, dest / f.name)
+        if self.enable_extension(EXTENSION_UUID):
+            self.progress("ok", "Clipboard extension installed (works after your next login)")
+        else:
+            self.progress("skip", "Clipboard extension already enabled")
 
     async def wifi(self, serial: str) -> None:
         self.progress("run", "Preparing Wi-Fi")
@@ -263,6 +308,8 @@ class Pairing:
         await self.check_switches(dev.serial)
         await self.install_apps(dev.serial)
         password = await self.remote_desktop()
-        await self.saved_connection(dev.serial, password)
+        await self.give_password_to_tablink(dev.serial, password)
+        await self.pair_token(dev.serial)
+        self.clipboard_extension()
         await self.wifi(dev.serial)
         self.progress("ok", "All set. Tap TabLink on the tablet, or click TabLink on the laptop.")

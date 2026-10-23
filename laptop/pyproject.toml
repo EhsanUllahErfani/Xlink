@@ -56,3 +56,7 @@ ignore_missing_imports = true
 # GTK classes come from gi without type stubs.
 module = ["tablink.ui.*"]
 disallow_subclassing_any = false
+
+[[tool.mypy.overrides]]
+module = ["secretstorage", "secretstorage.*"]
+ignore_missing_imports = true

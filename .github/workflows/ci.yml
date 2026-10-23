@@ -36,5 +36,19 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      # The RDP engine (FreeRDP, built from pinned source) only rebuilds when the script or
+      # its patches change; otherwise it comes from the cache.
+      - name: Cache FreeRDP library
+        id: freerdp
+        uses: actions/cache@v4
+        with:
+          path: android/app/libs/freeRDPCore-release.aar
+          key: freerdp-${{ hashFiles('android/scripts/build-freerdp.sh', 'android/scripts/patches/**') }}
+      - name: Build FreeRDP from source
+        if: steps.freerdp.outputs.cache-hit != 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.13113456" "cmake;4.1.2" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+          ./scripts/build-freerdp.sh
       - name: Build and test
         run: ./gradlew assembleDebug test

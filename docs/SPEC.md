@@ -445,3 +445,20 @@ USB.
 - GSConnect features wiki
 - KDE forum: one-way clipboard sync on Android
 - Redmi Pad 2 port notes (GitHub): Helio G100-Ultra (MT6789) hardware
+
+## Decisions since the original spec (2026-10-24)
+
+Agreed with the owner during the build; where these differ from the sections above, these win.
+
+| Topic | Original spec | Now | Why |
+|---|---|---|---|
+| Tablet | Redmi Pad 2, codename taiko | Redmi Pad 2 4G, codename **koto** (same MT6789) | What the real tablet reports |
+| Tablet controls laptop (F2) | RustDesk | **GNOME Remote Desktop (RDP)** on the laptop, **FreeRDP built into the TabLink app** (from source, `android/scripts/build-freerdp.sh`) | No per-session Wayland prompt; one app on the tablet |
+| Clipboard, files, notifications (F3, F4, F7) | KDE Connect / GSConnect | **Built into TabLink**: control channel + a small TabLink GNOME Shell extension for the laptop clipboard | One app; GNOME only lets the shell read the clipboard in the background |
+| Third-party tablet apps | RustDesk, KDE Connect, Syncthing-Fork | **None** (Syncthing for F5 still to decide) | Owner's request: everything in one app |
+| Wi-Fi adb | Wireless debugging (LAN), `adb tcpip` (tablet hotspot) | **`adb tcpip 5555` on every IP link**, enabled over USB once per tablet boot | Wireless debugging turns itself off on every network change |
+| Service tunnel | `adb reverse` on USB only | **`adb reverse` on every adb link** (USB and Wi-Fi), so the tablet always dials 127.0.0.1 | One code path; control port never exposed to the network |
+| Control channel | TLS WebSocket, keys pinned at pairing | **JSON lines on 127.0.0.1:47800** through the tunnel; each connection proves pairing with **HMAC-SHA256 challenge-response**; token in GNOME keyring and Android Keystore | Loopback-only port; secret never crosses the link |
+| Ports | RustDesk 21118, KDE Connect 1716 | **RDP 3389**; SSH reaches the tablet as 127.0.0.1:2222 (Android cannot bind ports below 1024) | Follows the engine change |
+| Pairing | GTK wizard | **`tablink pair`** (CLI, every step idempotent); GTK wizard later | Working path first |
+| scrcpy | 4.x | **5.0.1** (no breaking changes, hardware decoding) | Released after the spec |

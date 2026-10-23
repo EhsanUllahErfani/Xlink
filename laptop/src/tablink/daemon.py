@@ -101,7 +101,9 @@ class Daemon:
         control: ControlServer | None = None,
         manager: PathManager | None = None,
         screen: ScreenSession | None = None,
+        background: list[Any] | None = None,
     ) -> None:
+        self.background = background or []  # objects with start() / async stop()
         self.sock = sock or socket_path()
         self.status = DaemonStatus(running=True)
         self.control = control
@@ -160,9 +162,14 @@ class Daemon:
             await self.control.start()
         if self.manager is not None:
             self.manager.start()
+        for b in self.background:
+            b.start()
         log.info("tablinkd %s listening on %s", __version__, self.sock)
 
     async def stop(self) -> None:
+        for b in self.background:
+            with contextlib.suppress(Exception):
+                await b.stop()
         if self.screen is not None:
             with contextlib.suppress(Exception):
                 await self.screen.close()
@@ -187,11 +194,14 @@ def build() -> Daemon:
     """The real daemon, wired to adb, the path providers, the screen and remote desktop."""
     from tablink import config as config_mod
     from tablink.adb import Adb
-    from tablink.notify import desktop_notify
+    from tablink.notify import desktop_notify, private_notify
     from tablink.paths.lan import LanPath
     from tablink.proc import subprocess_spawner
-    from tablink.remote_session import bookmark_ref, prepare_remote, show_laptop_on_tablet
+    from tablink.remote_session import prepare_remote
     from tablink.screen import ScreenSession
+    from tablink.secrets import KeyringStore, control_token
+    from tablink.services.clipboard import ClipboardSync, ShellBridge
+    from tablink.services.files import FileReceiver
     from tablink.services.scrcpy import ScrcpyService
 
     cfg = config_mod.load()
@@ -221,31 +231,37 @@ def build() -> Daemon:
     scrcpy = ScrcpyService(adb, cfg.video, title=f"{cfg.device.tablet_name} · TabLink")
     screen = ScreenSession(scrcpy, subprocess_spawner, cfg, desktop_notify)
     manager = PathManager([usb, lan], [screen])
-    holder: dict[str, Daemon] = {}
+    holder: dict[str, Any] = {}
 
     async def remote(msg: dict[str, Any]) -> dict[str, Any]:
         path = holder["d"].path
         if path is None or path.adb_serial is None:
             return {"type": "remote", "ok": False, "message": "The tablet is not connected."}
-        bookmark = config_mod.load().remote.afreerdp_bookmark
-        if bookmark:
-            # The tablet app opens the saved connection itself: no login box, nothing typed.
-            await prepare_remote(adb, path.adb_serial)
-            return {
-                "type": "remote",
-                "ok": True,
-                "message": "Opening the laptop…",
-                "conRef": bookmark_ref(bookmark),
-            }
-        text = await show_laptop_on_tablet(adb, path.adb_serial)
-        return {
-            "type": "remote",
-            "ok": text.startswith(("The laptop", "aFreeRDP")),
-            "message": text,
-        }
+        # The tablet opens the session itself (FreeRDP is built into TabLink); the laptop
+        # only makes sure remote desktop is on and tunnelled.
+        await prepare_remote(adb, path.adb_serial)
+        return {"type": "remote", "ok": True, "message": "Opening the laptop…"}
 
     async def open_screen(msg: dict[str, Any]) -> dict[str, Any]:
         return {"type": "screen", "ok": True, "message": await screen.open()}
+
+    keyring = KeyringStore()
+    clipboard = ClipboardSync(
+        ShellBridge(), lambda text: holder["control"].broadcast({"type": "clip", "text": text})
+    )
+
+    async def clip(msg: dict[str, Any]) -> dict[str, Any]:
+        text = msg.get("text")
+        if not isinstance(text, str):
+            return {"type": "clip", "ok": False, "message": "no text"}
+        await clipboard.from_tablet(text)
+        return {"type": "clip", "ok": True}
+
+    async def notification(msg: dict[str, Any]) -> dict[str, Any]:
+        app, title, text = (str(msg.get(k) or "")[:300] for k in ("app", "title", "text"))
+        heading = f"{app}: {title}" if app and title else (title or app or "Tablet")
+        await asyncio.to_thread(private_notify, heading, text)
+        return {"type": "notification", "ok": True}
 
     def hello() -> dict[str, Any]:
         path = holder["d"].path
@@ -253,11 +269,14 @@ def build() -> Daemon:
 
     control = ControlServer(
         cfg.network.control_port,
-        {"remote_ready": remote, "screen": open_screen},
+        {"remote_ready": remote, "screen": open_screen, "clip": clip, "notification": notification},
         hello_extra=hello,
+        token=lambda: control_token(keyring),
+        files=FileReceiver(),
     )
-    d = Daemon(control=control, manager=manager, screen=screen)
+    d = Daemon(control=control, manager=manager, screen=screen, background=[clipboard])
     holder["d"] = d
+    holder["control"] = control
     return d
 
 

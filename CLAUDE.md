@@ -5,22 +5,24 @@ of the other, with shared clipboard, file transfer, a synced folder, and compute
 link the two devices share: USB, router Wi-Fi/Ethernet, laptop hotspot, tablet hotspot, a third
 phone's hotspot, Bluetooth, or the internet (Tailscale).
 
-The full specification is `docs/SPEC.md`. Read it before starting any task. If this file and the
+The full specification is `docs/SPEC.md`. Read it before starting any task, including its
+last section, "Decisions since the original spec", which overrides older sections. If this file and the
 spec disagree, the spec wins; point out the conflict.
 
 ## Target devices
 
 - Laptop: Ubuntu (GNOME on Wayland), x86_64, normal user with sudo.
-- Tablet: Redmi Pad 2 (codename taiko), HyperOS 3 / Android 16, MediaTek MT6789. NO root, NO
+- Tablet: Redmi Pad 2 4G (codename koto), HyperOS 3 / Android 16, MediaTek MT6789. NO root, NO
   bootloader unlock. Ever.
 
 ## Stack (ask before adding anything not listed)
 
 - Laptop: Python 3.12, asyncio, PyGObject (GTK4 + libadwaita), python-zeroconf, websockets,
   secretstorage, tomli-w. Tests: pytest, pytest-asyncio. Lint/type: ruff, mypy.
-- Android: Kotlin, Jetpack Compose, OkHttp (WebSocket), minSdk 30, targetSdk 36. Tests: JUnit.
-- External tools wrapped (one module each): adb, scrcpy, nmcli, tailscale, syncthing (REST API),
-  rustdesk, gsconnect/kdeconnect, ssh.
+- Android: Kotlin, Jetpack Compose, minSdk 30, targetSdk 36, FreeRDP (freeRDPCore, built from
+  source by `android/scripts/build-freerdp.sh`, with the AndroidX libraries it needs). Tests: JUnit.
+- External tools wrapped (one module each): adb, scrcpy, grdctl + openssl (remote desktop),
+  systemctl, nmcli, tailscale, syncthing (REST API), ssh.
 
 ## Repo layout
 
@@ -42,7 +44,8 @@ ruff check . && ruff format --check . && mypy src
 tablink status            # once the CLI exists
 
 # android
-cd android && ./gradlew assembleDebug test
+cd android && ./scripts/build-freerdp.sh   # once, builds the RDP engine (long)
+./gradlew assembleDebug test
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -65,17 +68,17 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   default gateway, `tailscale status --json`.
 - Secrets (hotspot password, pairing keys) go in GNOME Keyring / Android Keystore. Never in
   config files or logs.
-- All TabLink traffic uses the control port (default 47800, TLS WebSocket, keys pinned at pairing).
+- All TabLink traffic uses the control port (default 47800, loopback only, reached through the
+  adb reverse tunnel; every connection proves pairing with an HMAC challenge).
 
 ## Ports (USB mode maps each with `adb reverse` so the tablet uses 127.0.0.1)
 
 | Service | Port |
 |---|---|
 | TabLink control | 47800 |
-| RustDesk direct IP | 21118 |
+| Remote desktop (RDP) | 3389 |
 | Syncthing | 22000 |
-| KDE Connect | 1716 |
-| SSH | 22 |
+| SSH | 22 (tablet dials 2222) |
 | code-server | 8080 |
 
 ## Platform gotchas (design around these, don't fight them)
