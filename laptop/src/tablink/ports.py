@@ -22,7 +22,7 @@ def usb_reverse_ports(control_port: int = CONTROL) -> list[PortMap]:
     """
     return [
         PortMap("control", control_port, control_port),
-        PortMap("rustdesk", 21118, 21118),
+        PortMap("remote-desktop", 3389, 3389),  # GNOME Remote Desktop (RDP), see services/
         PortMap("syncthing", 22000, 22000),
         PortMap("kdeconnect", 1716, 1716),
         PortMap("ssh", 22, 2222),

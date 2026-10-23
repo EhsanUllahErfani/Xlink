@@ -102,6 +102,12 @@ def cmd_connect(args: argparse.Namespace) -> int:
             return 130
 
 
+def cmd_bar(args: argparse.Namespace) -> int:
+    from tablink.ui import bar
+
+    return bar.run(args.serial, args.name, args.subtitle)
+
+
 def not_yet(task: str) -> Callable[[argparse.Namespace], int]:
     def run(args: argparse.Namespace) -> int:
         print(f"tablink {args.command}: not implemented yet ({task})", file=sys.stderr)
@@ -130,6 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
     path = sub.add_parser("path", help="pin one link mode, for testing")
     path.add_argument("--force", choices=MODES, metavar="MODE", help=", ".join(MODES))
     sub.add_parser("daemon", help="run tablinkd in the foreground")
+    b = sub.add_parser("bar", help=argparse.SUPPRESS)  # started by `connect`
+    b.add_argument("--serial", required=True)
+    b.add_argument("--name", default="Tablet")
+    b.add_argument("--subtitle", default="")
 
     p.set_defaults(func=None)
     return p
@@ -138,6 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
 HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "status": cmd_status,
     "connect": cmd_connect,
+    "bar": cmd_bar,
     "pair": not_yet("T17"),
     "hotspot": not_yet("T7"),
     "send": not_yet("T15"),

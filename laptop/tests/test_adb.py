@@ -142,3 +142,37 @@ async def test_real_subprocess_runner_runs_a_program() -> None:
 
     res = await subprocess_runner(["true"], 5)
     assert res.returncode == 0
+
+
+async def test_keyevent_validates_key(fake: FakeAdb, adb: Adb) -> None:
+    await adb.keyevent(USB_SERIAL, "KEYCODE_BACK")
+    assert fake.calls[-1][-3:] == ["input", "keyevent", "KEYCODE_BACK"]
+    with pytest.raises(ValueError):
+        await adb.keyevent(USB_SERIAL, "KEYCODE_BACK; reboot")
+
+
+def test_parse_foreground_package_real_android16_output() -> None:
+    from tablink.adb import parse_foreground_package
+
+    text = (
+        "  topResumedActivity=ActivityRecord{52394160 u0 com.facebook.katana/.LoginActivity"
+        " t7445}\n"
+        "  ResumedActivity: ActivityRecord{52394160 u0 com.facebook.katana/.LoginActivity t7445}\n"
+    )
+    assert parse_foreground_package(text) == "com.facebook.katana"
+    assert parse_foreground_package("nothing here") is None
+
+
+async def test_force_stop_validates_package(adb: Adb) -> None:
+    await adb.force_stop(USB_SERIAL, "com.example.app")
+    with pytest.raises(ValueError):
+        await adb.force_stop(USB_SERIAL, "com.x; rm -rf /")
+
+
+async def test_push_returns_remote_path_and_scans(fake: FakeAdb, adb: Adb, tmp_path: Path) -> None:
+    f = tmp_path / "my photo.jpg"
+    f.write_bytes(b"x")
+    remote = await adb.push(USB_SERIAL, f, "/sdcard/Download/TabLink/")
+    assert remote == "/sdcard/Download/TabLink/my photo.jpg"
+    assert ["push", str(f), remote] == fake.calls[-2][-3:]
+    assert "file:///sdcard/Download/TabLink/my%20photo.jpg" in fake.calls[-1]

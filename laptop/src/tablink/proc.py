@@ -122,3 +122,63 @@ async def stop_process(proc: Process, grace_s: float = 3.0) -> None:
     except TimeoutError:
         proc.kill()
         await proc.wait()
+
+
+TtyRunner = Callable[[Sequence[str], Sequence[str], float], Awaitable[RunResult]]
+
+
+def _run_with_tty_sync(argv: Sequence[str], lines: Sequence[str], timeout: float) -> RunResult:
+    import pty
+    import select
+    import subprocess
+    import time
+
+    master, slave = pty.openpty()
+    try:
+        proc = subprocess.Popen(list(argv), stdin=slave, stdout=slave, stderr=slave)
+    finally:
+        os.close(slave)
+    out = bytearray()
+
+    def drain(seconds: float) -> None:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            ready, _, _ = select.select([master], [], [], 0.05)
+            if ready:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                out.extend(chunk)
+            elif proc.poll() is not None:
+                return
+
+    try:
+        drain(0.5)
+        for line in lines:
+            os.write(master, line.encode() + b"\n")
+            drain(0.5)
+        try:
+            code = proc.wait(timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise TimeoutError from None
+        drain(0.2)
+    finally:
+        os.close(master)
+    text = out.decode(errors="replace")
+    for line in lines:  # never hand typed secrets back to the caller
+        if line:
+            text = text.replace(line, "")
+    return RunResult(code, text, "")
+
+
+async def tty_runner(argv: Sequence[str], lines: Sequence[str], timeout: float) -> RunResult:
+    """Run a program that insists on a terminal for its prompts, typing `lines` into it.
+
+    Used for secrets: they go through the terminal, never through argv (visible in `ps`).
+    """
+    return await asyncio.to_thread(_run_with_tty_sync, argv, lines, timeout)

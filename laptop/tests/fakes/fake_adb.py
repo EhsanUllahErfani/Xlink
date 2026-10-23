@@ -23,6 +23,9 @@ class FakeAdb:
     reverses: dict[str, dict[int, int]] = field(default_factory=dict)
     forwards: dict[str, dict[int, int]] = field(default_factory=dict)
     calls: list[list[str]] = field(default_factory=list)
+    pushed: list[tuple[str, str]] = field(default_factory=list)
+    stopped: list[str] = field(default_factory=list)
+    foreground: str = "com.example.notes"
     fail_next: str | None = None  # stderr for the next call, which then exits 1
     timeout_next: bool = False
 
@@ -116,9 +119,22 @@ class FakeAdb:
                 "31: rmnet_data0    inet 10.0.0.9/30 scope global rmnet_data0\n",
                 "",
             )
+        if rest[:3] == ["dumpsys", "activity", "activities"]:
+            return RunResult(
+                0,
+                "  topResumedActivity=ActivityRecord{1 u0 " + self.foreground + "/.Main t9}\n",
+                "",
+            )
+        if rest[:2] == ["am", "force-stop"]:
+            self.stopped.append(rest[2])
+            return RunResult(0, "", "")
         if rest[:1] == ["echo"]:
             return RunResult(0, " ".join(rest[1:]) + "\n", "")
         return RunResult(0, "", "")
+
+    def _push(self, serial: str | None, rest: list[str]) -> RunResult:
+        self.pushed.append((rest[0], rest[1]))
+        return RunResult(0, f"{rest[0]}: 1 file pushed, 0 skipped.\n", "")
 
     def _install(self, serial: str | None, rest: list[str]) -> RunResult:
         return RunResult(0, "Performing Streamed Install\nSuccess\n", "")

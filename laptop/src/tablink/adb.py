@@ -5,6 +5,7 @@ Every call goes through a `Runner`, so tests swap in `tests/fakes/fake_adb.py` a
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -12,6 +13,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 from tablink.proc import Runner, RunResult, subprocess_runner
 
@@ -206,3 +208,49 @@ class Adb:
 
     async def getprop(self, serial: str, name: str) -> str:
         return (await self.shell(serial, "getprop", name)).strip()
+
+    # --- Navigation and file actions used by the control bar -------------------------------
+
+    async def keyevent(self, serial: str, key: str) -> None:
+        """Press a key on the tablet, e.g. "KEYCODE_BACK"."""
+        if not re.fullmatch(r"KEYCODE_[A-Z0-9_]+", key):
+            raise ValueError(f"not a key code: {key}")
+        await self.shell(serial, "input", "keyevent", key)
+
+    async def foreground_package(self, serial: str) -> str | None:
+        """Package of the app on screen, or None if it cannot be told."""
+        out = await self.shell(serial, "dumpsys", "activity", "activities")
+        return parse_foreground_package(out)
+
+    async def force_stop(self, serial: str, package: str) -> None:
+        if not _PACKAGE.fullmatch(package):
+            raise ValueError(f"not a package name: {package}")
+        await self.shell(serial, "am", "force-stop", package)
+
+    async def push(self, serial: str, local: Path, remote_dir: str) -> str:
+        """Copy one file into `remote_dir` and ask Android to index it. Returns the remote path."""
+        remote = remote_dir.rstrip("/") + "/" + local.name
+        await self._run("push", str(local), remote, serial=serial, timeout=1800.0)
+        with contextlib.suppress(AdbError):
+            await self.shell(
+                serial,
+                "am",
+                "broadcast",
+                "-a",
+                "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                "-d",
+                "file://" + quote(remote, safe="/"),
+            )
+        return remote
+
+
+_PACKAGE = re.compile(r"[A-Za-z][\w]*(\.[A-Za-z][\w]*)+")
+_TOP_ACTIVITY = re.compile(
+    r"(?:topResumedActivity|mResumedActivity|ResumedActivity)\s*[:=]\s*ActivityRecord\{"
+    r"[^}]*?\bu\d+\s+([A-Za-z][\w.]*)/"
+)
+
+
+def parse_foreground_package(dumpsys: str) -> str | None:
+    m = _TOP_ACTIVITY.search(dumpsys)
+    return m.group(1) if m else None

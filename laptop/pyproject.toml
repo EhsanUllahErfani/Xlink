@@ -51,3 +51,8 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = ["gi", "gi.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# GTK classes come from gi without type stubs.
+module = ["tablink.ui.*"]
+disallow_subclassing_any = false

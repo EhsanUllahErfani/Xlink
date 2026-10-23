@@ -40,7 +40,7 @@ async def test_activate_reverses_every_service_port_then_cleans_up() -> None:
     await usb.activate(path)
     assert fake.reverses[USB_SERIAL] == {
         47800: 47800,
-        21118: 21118,
+        3389: 3389,
         22000: 22000,
         1716: 1716,
         2222: 22,
