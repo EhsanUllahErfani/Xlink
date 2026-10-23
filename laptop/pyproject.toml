@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tablink"
+version = "0.1.0"
+description = "Link an Ubuntu laptop with a Redmi Pad 2: screen control, clipboard, files, sync."
+requires-python = ">=3.12"
+dependencies = [
+    "zeroconf",
+    "websockets",
+    "secretstorage",
+    "tomli-w",
+]
+
+[project.optional-dependencies]
+# PyGObject needs system GTK/girepository headers, so it is kept out of the core install.
+ui = ["PyGObject"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+]
+
+[project.scripts]
+tablink = "tablink.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
+# Tool runners take a per-call timeout so a hung external program is killed, not just abandoned.
+ignore = ["ASYNC109"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
