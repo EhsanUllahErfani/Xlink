@@ -1,8 +1,8 @@
 """Control channel server: one JSON object per line, request then reply.
 
-v0 listens on 127.0.0.1 only, so it is reachable from this laptop and from the tablet through
-the USB tunnel (adb reverse), never from the Wi-Fi network. TLS with pinned keys for Wi-Fi
-comes with T9. Messages never carry passwords.
+It listens on 127.0.0.1 only: the tablet reaches it through the adb reverse tunnel, which
+runs over USB or over adb-on-Wi-Fi alike, so the port is never exposed to the network.
+Messages never carry passwords.
 """
 
 from __future__ import annotations
@@ -23,7 +23,14 @@ Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 class ControlServer:
-    def __init__(self, port: int, handlers: dict[str, Handler], host: str = "127.0.0.1") -> None:
+    def __init__(
+        self,
+        port: int,
+        handlers: dict[str, Handler],
+        host: str = "127.0.0.1",
+        hello_extra: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
+        self.hello_extra = hello_extra
         self.host = host
         self.port = port
         self.handlers = handlers
@@ -50,7 +57,8 @@ class ControlServer:
     async def dispatch(self, msg: dict[str, Any]) -> dict[str, Any]:
         kind = msg.get("type")
         if kind == "hello":
-            return {"type": "hello", "app": "tablink-laptop", "version": __version__}
+            extra = self.hello_extra() if self.hello_extra else {}
+            return {"type": "hello", "app": "tablink-laptop", "version": __version__, **extra}
         handler = self.handlers.get(kind) if isinstance(kind, str) else None
         if handler is None:
             return {"type": "error", "message": f"unknown message type: {kind!r}"}

@@ -27,11 +27,12 @@ class ControlClient(
             }
         }
 
-    /** True when the laptop answers; used for the status line. */
-    suspend fun reachable(): Boolean =
+    /** The laptop's active link mode ("usb", "lan", ...) or null if unreachable. */
+    suspend fun linkMode(): String? =
         try {
-            send("hello", readTimeoutMs = 2_000).type == "hello"
+            val r = send("hello", readTimeoutMs = 2_000)
+            if (r.type == "hello") r.mode else null
         } catch (e: Exception) {
-            false
+            null
         }
 }

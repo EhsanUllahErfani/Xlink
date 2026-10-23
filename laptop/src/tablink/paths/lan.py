@@ -15,6 +15,8 @@ from collections.abc import Awaitable, Callable
 from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError
 from tablink.paths.base import PRIORITY, Mode, Path
 from tablink.paths.netinfo import default_gateways, local_addr_towards
+from tablink.paths.tunnel import Tunnel
+from tablink.ports import CONTROL, usb_reverse_ports
 
 log = logging.getLogger(__name__)
 
@@ -51,14 +53,15 @@ class LanPath:
         reachable: Callable[[str, int], Awaitable[bool]] = tcp_reachable,
         gateways: Callable[[], list[str]] = default_gateways,
         local_addr: Callable[[str], str | None] = local_addr_towards,
+        control_port: int = CONTROL,
     ) -> None:
+        self.tunnel = Tunnel(adb, usb_reverse_ports(control_port))
         self.adb = adb
         self.reachable = reachable
         self.gateways = gateways
         self.local_addr = local_addr
         self.known_addrs = known_addrs
         self.laptop_is_hotspot = laptop_is_hotspot
-        self._serial: str | None = None
 
     async def probe(self) -> Path | None:
         gateways = self.gateways()
@@ -95,7 +98,8 @@ class LanPath:
         )
 
     async def activate(self, path: Path) -> None:
-        self._serial = path.adb_serial
+        assert path.adb_serial
+        await self.tunnel.open(path.adb_serial)
 
     async def deactivate(self) -> None:
-        self._serial = None
+        await self.tunnel.close()

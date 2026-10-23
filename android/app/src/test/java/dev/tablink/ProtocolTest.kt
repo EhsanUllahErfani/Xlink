@@ -55,4 +55,11 @@ class ProtocolTest {
         val r = Protocol.parse("{\"type\": \"remote\", \"ok\": true, \"conRef\": \"FILE//sdcard/evil.rdp\"}")
         assertEquals("", r.conRef)
     }
+
+    @Test
+    fun helloCarriesLinkMode() {
+        val r = Protocol.parse("{\"type\": \"hello\", \"mode\": \"lan\"}")
+        assertEquals("lan", r.mode)
+        assertEquals("Wi-Fi", Protocol.modeLabel(r.mode))
+    }
 }

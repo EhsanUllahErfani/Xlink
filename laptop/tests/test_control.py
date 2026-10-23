@@ -111,3 +111,9 @@ async def test_daemon_local_status_and_unknown_command() -> None:
     finally:
         await d.stop()
     assert st.running and "error" in bad
+
+
+async def test_hello_reports_active_mode() -> None:
+    srv = ControlServer(0, {}, hello_extra=lambda: {"mode": "lan"})
+    reply = await srv.dispatch({"type": "hello"})
+    assert reply["mode"] == "lan" and reply["app"] == "tablink-laptop"

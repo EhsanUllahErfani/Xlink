@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections.abc import Callable
 
 from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError
 from tablink.paths.base import PRIORITY, Path
+from tablink.paths.tunnel import Tunnel
 from tablink.ports import PortMap, usb_reverse_ports
 
 log = logging.getLogger(__name__)
@@ -30,8 +30,8 @@ class UsbPath:
         self.prepare_wifi = prepare_wifi
         self.on_wifi_addrs = on_wifi_addrs
         self.ports: list[PortMap] = usb_reverse_ports(control_port)
+        self.tunnel = Tunnel(adb, self.ports)
         self.serial_hint = serial_hint  # the paired tablet's serial, preferred when set
-        self._active_serial: str | None = None
 
     async def probe(self) -> Path | None:
         try:
@@ -77,27 +77,7 @@ class UsbPath:
         assert path.adb_serial
         if self.prepare_wifi:
             await self._prepare_wifi(path.adb_serial)
-        for p in self.ports:
-            await self._reverse_with_retry(path.adb_serial, p)
-        self._active_serial = path.adb_serial
-
-    async def _reverse_with_retry(self, serial: str, p: PortMap, attempts: int = 4) -> None:
-        # Right after adbd restarts the device is listed before its transport is usable.
-        for i in range(attempts):
-            try:
-                await self.adb.reverse(serial, p.tablet, p.laptop)
-                return
-            except AdbError:
-                if i == attempts - 1:
-                    raise
-                await asyncio.sleep(0.75)
+        await self.tunnel.open(path.adb_serial)
 
     async def deactivate(self) -> None:
-        serial, self._active_serial = self._active_serial, None
-        if serial is None:
-            return
-        for p in self.ports:
-            try:
-                await self.adb.reverse_remove(serial, p.tablet)
-            except AdbError as e:  # the cable may already be gone
-                log.debug("reverse remove %s: %s", p.tablet, e)
+        await self.tunnel.close()

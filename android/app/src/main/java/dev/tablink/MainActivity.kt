@@ -94,12 +94,17 @@ private fun TabLinkScreen(client: ControlClient) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var connected by remember { mutableStateOf<Boolean?>(null) }
+    var mode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         while (true) {
-            if (!busy) connected = client.reachable()
+            if (!busy) {
+                val m = client.linkMode()
+                connected = m != null
+                mode = m ?: ""
+            }
             delay(3_000)
         }
     }
@@ -119,8 +124,8 @@ private fun TabLinkScreen(client: ControlClient) {
                 }
             } catch (e: Exception) {
                 connected = false
-                "Can't reach the laptop. Plug in the USB cable and make sure TabLink is " +
-                    "running on the laptop."
+                "Can't reach the laptop. Plug in the USB cable, or put both devices on the " +
+                    "same Wi-Fi, and make sure the laptop is on."
             }
             busy = false
         }
@@ -133,7 +138,7 @@ private fun TabLinkScreen(client: ControlClient) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("TabLink", fontSize = 40.sp, fontWeight = FontWeight.Bold)
-            StatusLine(connected)
+            StatusLine(connected, mode)
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = { run("remote_ready", "Opening the laptop…") },
@@ -163,7 +168,13 @@ private fun TabLinkScreen(client: ControlClient) {
                 }
             }
             if (connected == false) {
-                TextButton(onClick = { scope.launch { connected = client.reachable() } }) {
+                TextButton(onClick = {
+                    scope.launch {
+                        val m = client.linkMode()
+                        connected = m != null
+                        mode = m ?: ""
+                    }
+                }) {
                     Text("Try again")
                 }
             }
@@ -172,10 +183,10 @@ private fun TabLinkScreen(client: ControlClient) {
 }
 
 @Composable
-private fun StatusLine(connected: Boolean?) {
+private fun StatusLine(connected: Boolean?, mode: String) {
     val (color, text) = when (connected) {
-        true -> Color(0xFF2E9D4E) to "Laptop connected · USB"
-        false -> Color(0xFFC0392B) to "Laptop not found · plug in the USB cable"
+        true -> Color(0xFF2E9D4E) to "Laptop connected · ${Protocol.modeLabel(mode)}"
+        false -> Color(0xFFC0392B) to "Laptop not found · plug in USB or join the laptop's Wi-Fi"
         null -> Color.Gray to "Looking for the laptop…"
     }
     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -13,7 +13,19 @@ object Protocol {
         val ok: Boolean,
         val message: String,
         val conRef: String = "",
+        val mode: String = "",
     )
+
+    /** Human label for the laptop's active link mode. */
+    fun modeLabel(mode: String): String = when (mode) {
+        "usb" -> "USB cable"
+        "lan" -> "Wi-Fi"
+        "laptop_hotspot" -> "laptop hotspot"
+        "tablet_hotspot" -> "tablet hotspot"
+        "tailscale" -> "internet (Tailscale)"
+        "bluetooth" -> "Bluetooth"
+        else -> "connected"
+    }
 
     fun request(type: String): String {
         require(type.all { it.isLetterOrDigit() || it == '_' }) { "bad type: $type" }
@@ -25,7 +37,8 @@ object Protocol {
         val ok = Regex("\"ok\"\\s*:\\s*(true|false)").find(line)?.groupValues?.get(1) == "true"
         val message = stringField(line, "message") ?: ""
         val conRef = stringField(line, "conRef")?.takeIf { CON_REF.matches(it) } ?: ""
-        return Reply(type, ok || type == "hello", message, conRef)
+        val mode = stringField(line, "mode") ?: ""
+        return Reply(type, ok || type == "hello", message, conRef, mode)
     }
 
     private fun stringField(json: String, name: String): String? {

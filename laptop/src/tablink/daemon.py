@@ -213,7 +213,11 @@ def build() -> Daemon:
         prepare_wifi=True,
         on_wifi_addrs=learn,
     )
-    lan = LanPath(adb, lambda: config_mod.load().network.known_tablet_addrs)
+    lan = LanPath(
+        adb,
+        lambda: config_mod.load().network.known_tablet_addrs,
+        control_port=cfg.network.control_port,
+    )
     scrcpy = ScrcpyService(adb, cfg.video, title=f"{cfg.device.tablet_name} · TabLink")
     screen = ScreenSession(scrcpy, subprocess_spawner, cfg, desktop_notify)
     manager = PathManager([usb, lan], [screen])
@@ -243,8 +247,14 @@ def build() -> Daemon:
     async def open_screen(msg: dict[str, Any]) -> dict[str, Any]:
         return {"type": "screen", "ok": True, "message": await screen.open()}
 
+    def hello() -> dict[str, Any]:
+        path = holder["d"].path
+        return {"mode": path.mode if path else None}
+
     control = ControlServer(
-        cfg.network.control_port, {"remote_ready": remote, "screen": open_screen}
+        cfg.network.control_port,
+        {"remote_ready": remote, "screen": open_screen},
+        hello_extra=hello,
     )
     d = Daemon(control=control, manager=manager, screen=screen)
     holder["d"] = d
