@@ -5,6 +5,7 @@ Every call goes through a `Runner`, so tests swap in `tests/fakes/fake_adb.py` a
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -168,6 +169,21 @@ class Adb:
         res = await self._run("tcpip", str(port), serial=serial)
         if "restarting" not in res.stdout.lower():
             raise AdbError(f"adb tcpip: {(res.stdout + res.stderr).strip() or 'no output'}")
+
+    async def tcp_port(self, serial: str) -> int:
+        """The port adbd listens on over TCP (0 when TCP mode is off)."""
+        value = await self.getprop(serial, "service.adb.tcp.port")
+        return int(value) if value.isdigit() else 0
+
+    async def wait_for(self, serial: str, timeout: float = 15.0) -> bool:
+        """Wait until `serial` is listed as ready again (after adbd restarts)."""
+        loop = asyncio.get_running_loop()
+        end = loop.time() + timeout
+        while loop.time() < end:
+            if any(d.serial == serial and d.ready for d in await self.devices()):
+                return True
+            await asyncio.sleep(0.5)
+        return False
 
     async def forward(self, serial: str, local: int, remote: int) -> None:
         """Laptop port `local` reaches tablet port `remote`."""

@@ -59,3 +59,13 @@ async def test_deactivate_after_cable_pulled_does_not_raise() -> None:
     await usb.activate(path)
     fake.usb_attached = False
     await usb.deactivate()
+
+
+async def test_reverse_retries_while_adbd_restarts() -> None:
+    fake = FakeAdb()
+    usb = make(fake)
+    path = await usb.probe()
+    assert path
+    fake.fail_next = "adb: error: closed"
+    await usb.activate(path)
+    assert fake.reverses[USB_SERIAL][47800] == 47800

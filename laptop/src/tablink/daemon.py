@@ -13,11 +13,16 @@ import logging
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tablink import __version__
 from tablink.control.server import ControlServer
+from tablink.paths.base import Path as TabletPath
+from tablink.paths.manager import PathManager
 from tablink.paths.usb import UsbPath
+
+if TYPE_CHECKING:
+    from tablink.screen import ScreenSession
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +41,7 @@ class DaemonStatus:
     running: bool
     mode: str | None = None  # active path mode, None when no path
     rtt_ms: float | None = None
+    serial: str | None = None  # adb serial on the active path
     version: str = __version__
     services: list[ServiceStatus] = field(default_factory=list)
 
@@ -45,6 +51,7 @@ class DaemonStatus:
             running=bool(d.get("running", True)),
             mode=d.get("mode"),
             rtt_ms=d.get("rtt_ms"),
+            serial=d.get("serial"),
             version=str(d.get("version", "")),
             services=[ServiceStatus(**s) for s in d.get("services", [])],
         )
@@ -86,66 +93,63 @@ async def get_status(path: Path | None = None) -> DaemonStatus:
 
 
 class Daemon:
-    """tablinkd: local status socket, USB watcher, and the control channel for the tablet app."""
+    """tablinkd: local socket for the CLI, the path manager, and the tablet's control channel."""
 
     def __init__(
         self,
         sock: Path | None = None,
         control: ControlServer | None = None,
-        usb: UsbPath | None = None,
-        poll_s: float = 5.0,
+        manager: PathManager | None = None,
+        screen: ScreenSession | None = None,
     ) -> None:
         self.sock = sock or socket_path()
         self.status = DaemonStatus(running=True)
         self.control = control
-        self.usb = usb
-        self.poll_s = poll_s
-        self.serial: str | None = None
+        self.manager = manager
+        self.screen = screen
         self._server: asyncio.Server | None = None
-        self._watch: asyncio.Task[None] | None = None
+        self._status_task: asyncio.Task[None] | None = None
+
+    @property
+    def path(self) -> TabletPath | None:
+        return self.manager.active if self.manager else None
+
+    def refresh_status(self) -> None:
+        if self.manager is None:
+            return  # nothing to read from (tests set the status directly)
+        p = self.path
+        self.status.mode = p.mode if p else None
+        self.status.rtt_ms = p.rtt_ms if p else None
+        self.status.serial = p.adb_serial if p else None
+        self.status.services = []
+        if self.screen is not None:
+            svc = self.screen.scrcpy
+            self.status.services.append(ServiceStatus("screen", svc.state, svc.status_detail))
+
+    async def _local(self, msg: dict[str, Any]) -> dict[str, Any]:
+        cmd = msg.get("cmd")
+        if cmd == "status":
+            self.refresh_status()
+            return asdict(self.status)
+        if cmd == "open_screen" and self.screen is not None:
+            return {"ok": True, "message": await self.screen.open()}
+        if cmd == "close_screen" and self.screen is not None:
+            await self.screen.close()
+            return {"ok": True, "message": "Closed."}
+        return {"error": f"unknown command: {cmd!r}"}
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             line = await reader.readline()
             try:
                 msg = json.loads(line)
-                cmd = msg.get("cmd") if isinstance(msg, dict) else None
+                reply = await self._local(msg) if isinstance(msg, dict) else {"error": "bad"}
             except ValueError:
-                cmd = None
-            if cmd == "status":
-                reply: dict[str, Any] = asdict(self.status)
-            else:
-                reply = {"error": f"unknown command: {cmd!r}"}
+                reply = {"error": "bad message"}
             writer.write(json.dumps(reply).encode() + b"\n")
             await writer.drain()
         finally:
             writer.close()
-
-    async def check_usb(self) -> None:
-        """One health check: tunnel the ports when the tablet is plugged in."""
-        if self.usb is None:
-            return
-        path = await self.usb.probe()
-        if path is None:
-            if self.serial is not None:
-                log.info("tablet unplugged")
-                await self.usb.deactivate()
-            self.serial = None
-            self.status.mode, self.status.rtt_ms = None, None
-            return
-        if path.adb_serial != self.serial:
-            await self.usb.activate(path)
-            self.serial = path.adb_serial
-            log.info("tablet connected by USB")
-        self.status.mode, self.status.rtt_ms = path.mode, path.rtt_ms
-
-    async def _watch_usb(self) -> None:
-        while True:
-            try:
-                await self.check_usb()
-            except Exception:  # a flaky adb must never kill the daemon
-                log.exception("USB health check failed")
-            await asyncio.sleep(self.poll_s)
 
     async def start(self) -> None:
         self.sock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -154,15 +158,16 @@ class Daemon:
         os.chmod(self.sock, 0o600)
         if self.control is not None:
             await self.control.start()
-        if self.usb is not None:
-            self._watch = asyncio.create_task(self._watch_usb())
+        if self.manager is not None:
+            self.manager.start()
         log.info("tablinkd %s listening on %s", __version__, self.sock)
 
     async def stop(self) -> None:
-        if self._watch is not None:
-            self._watch.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._watch
+        if self.screen is not None:
+            with contextlib.suppress(Exception):
+                await self.screen.close()
+        if self.manager is not None:
+            await self.manager.stop()
         if self.control is not None:
             await self.control.stop()
         if self._server:
@@ -179,50 +184,69 @@ class Daemon:
 
 
 def build() -> Daemon:
-    """The real daemon, wired to adb, the screen launcher and GNOME Remote Desktop."""
-    import sys
-
+    """The real daemon, wired to adb, the path providers, the screen and remote desktop."""
     from tablink import config as config_mod
     from tablink.adb import Adb
-    from tablink.proc import Process, subprocess_spawner
+    from tablink.notify import desktop_notify
+    from tablink.paths.lan import LanPath
+    from tablink.proc import subprocess_spawner
     from tablink.remote_session import bookmark_ref, prepare_remote, show_laptop_on_tablet
+    from tablink.screen import ScreenSession
+    from tablink.services.scrcpy import ScrcpyService
 
     cfg = config_mod.load()
     adb = Adb()
-    usb = UsbPath(adb, cfg.network.control_port, serial_hint=cfg.device.tablet_serial)
+
+    def learn(addrs: list[str]) -> None:
+        current = config_mod.load()
+        before = list(current.network.known_tablet_addrs)
+        for a in reversed(addrs):
+            current.remember_tablet_addr(a)
+        if current.network.known_tablet_addrs != before:
+            config_mod.save(current)
+            log.info("learned tablet Wi-Fi address")
+
+    usb = UsbPath(
+        adb,
+        cfg.network.control_port,
+        serial_hint=cfg.device.tablet_serial,
+        prepare_wifi=True,
+        on_wifi_addrs=learn,
+    )
+    lan = LanPath(adb, lambda: config_mod.load().network.known_tablet_addrs)
+    scrcpy = ScrcpyService(adb, cfg.video, title=f"{cfg.device.tablet_name} · TabLink")
+    screen = ScreenSession(scrcpy, subprocess_spawner, cfg, desktop_notify)
+    manager = PathManager([usb, lan], [screen])
     holder: dict[str, Daemon] = {}
-    screens: list[Process] = []
 
     async def remote(msg: dict[str, Any]) -> dict[str, Any]:
-        d = holder["d"]
-        if d.serial is None:
-            return {"type": "remote", "ok": False, "message": "Tablet is not connected by USB."}
+        path = holder["d"].path
+        if path is None or path.adb_serial is None:
+            return {"type": "remote", "ok": False, "message": "The tablet is not connected."}
         bookmark = config_mod.load().remote.afreerdp_bookmark
         if bookmark:
             # The tablet app opens the saved connection itself: no login box, nothing typed.
-            await prepare_remote(adb, d.serial)
+            await prepare_remote(adb, path.adb_serial)
             return {
                 "type": "remote",
                 "ok": True,
                 "message": "Opening the laptop…",
                 "conRef": bookmark_ref(bookmark),
             }
-        text = await show_laptop_on_tablet(adb, d.serial)
+        text = await show_laptop_on_tablet(adb, path.adb_serial)
         return {
             "type": "remote",
             "ok": text.startswith(("The laptop", "aFreeRDP")),
             "message": text,
         }
 
-    async def screen(msg: dict[str, Any]) -> dict[str, Any]:
-        screens[:] = [p for p in screens if p.returncode is None]
-        if screens:
-            return {"type": "screen", "ok": True, "message": "The tablet window is already open."}
-        screens.append(await subprocess_spawner([sys.executable, "-m", "tablink.cli", "connect"]))
-        return {"type": "screen", "ok": True, "message": "Opening the tablet on the laptop."}
+    async def open_screen(msg: dict[str, Any]) -> dict[str, Any]:
+        return {"type": "screen", "ok": True, "message": await screen.open()}
 
-    control = ControlServer(cfg.network.control_port, {"remote_ready": remote, "screen": screen})
-    d = Daemon(control=control, usb=usb)
+    control = ControlServer(
+        cfg.network.control_port, {"remote_ready": remote, "screen": open_screen}
+    )
+    d = Daemon(control=control, manager=manager, screen=screen)
     holder["d"] = d
     return d
 

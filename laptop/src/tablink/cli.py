@@ -92,6 +92,18 @@ def cmd_connect(args: argparse.Namespace) -> int:
     from tablink import launcher
     from tablink.notify import desktop_notify
 
+    # Normally the daemon owns the window, so it can follow the cable/Wi-Fi switch.
+    try:
+        reply = asyncio.run(daemon.request({"cmd": "open_screen"}))
+    except (OSError, TimeoutError, ValueError):
+        reply = None
+    if isinstance(reply, dict) and "message" in reply:
+        msg = str(reply["message"])
+        if not msg.startswith(("Opening", "The tablet window is already")):
+            desktop_notify("TabLink", msg, urgent=True)
+            return launcher.NO_TABLET
+        return launcher.OK
+
     with launcher.single_instance() as first:
         if not first:
             desktop_notify("TabLink", "The tablet window is already open.")

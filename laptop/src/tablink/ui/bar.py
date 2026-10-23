@@ -146,7 +146,7 @@ class BarApp(Adw.Application):
     def __init__(self, adb: Adb, serial: str, tablet_name: str, subtitle: str) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.NON_UNIQUE)
         self.adb = adb
-        self.serial = serial
+        self.serial = serial  # the daemon restarts the bar when the path (and serial) changes
         self.tablet_name = tablet_name
         self.subtitle = subtitle
         self.win: BarWindow | None = None

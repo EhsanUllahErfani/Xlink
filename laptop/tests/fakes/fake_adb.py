@@ -117,6 +117,8 @@ class FakeAdb:
         return self._ports(self.forwards, serial, rest)
 
     def _shell(self, serial: str | None, rest: list[str]) -> RunResult:
+        if rest[:2] == ["getprop", "service.adb.tcp.port"]:
+            return RunResult(0, "5555\n" if self.tcpip_enabled else "\n", "")
         if rest[:2] == ["getprop", "ro.product.device"]:
             return RunResult(0, "taiko\n", "")
         if rest[:1] == ["ip"]:

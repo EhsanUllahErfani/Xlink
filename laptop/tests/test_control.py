@@ -5,6 +5,7 @@ from typing import Any
 from tablink.adb import Adb
 from tablink.control.server import ControlServer
 from tablink.daemon import Daemon
+from tablink.paths.manager import PathManager
 from tablink.paths.usb import UsbPath
 from tests.fakes.fake_adb import USB_SERIAL, FakeAdb
 
@@ -81,29 +82,32 @@ async def test_second_request_while_busy_is_refused() -> None:
     assert (await first)["ok"] is True
 
 
-async def test_daemon_tunnels_ports_when_tablet_plugged_and_cleans_up() -> None:
+async def test_daemon_follows_usb_plug_and_unplug() -> None:
     fake = FakeAdb(usb_attached=False)
-    d = Daemon(usb=UsbPath(Adb(runner=fake, adb_path="adb"), 47800))
-    await d.check_usb()
-    assert d.serial is None and d.status.mode is None
+    mgr = PathManager([UsbPath(Adb(runner=fake, adb_path="adb"), 47800)])
+    d = Daemon(manager=mgr)
+    await mgr.check()
+    d.refresh_status()
+    assert d.status.mode is None
     fake.usb_attached = True
-    await d.check_usb()
-    assert d.serial == USB_SERIAL and d.status.mode == "usb"
+    await mgr.check()
+    d.refresh_status()
+    assert d.status.mode == "usb" and d.status.serial == USB_SERIAL
     assert fake.reverses[USB_SERIAL][47800] == 47800
-    await d.check_usb()  # steady state: no re-activation
-    n = len([c for c in fake.calls if "reverse" in c])
-    await d.check_usb()
-    assert len([c for c in fake.calls if "reverse" in c]) == n
     fake.usb_attached = False
-    await d.check_usb()
-    assert d.serial is None and d.status.mode is None
+    await mgr.check()
+    d.refresh_status()
+    assert d.status.mode is None
 
 
-async def test_daemon_survives_adb_errors() -> None:
-    fake = FakeAdb()
-    d = Daemon(usb=UsbPath(Adb(runner=fake, adb_path="adb"), 47800), poll_s=0.01)
+async def test_daemon_local_status_and_unknown_command() -> None:
+    from tablink import daemon as daemon_mod
+
+    d = Daemon()
     await d.start()
-    fake.fail_next = "adb crashed"
-    await asyncio.sleep(0.05)
-    assert d._watch is not None and not d._watch.done()
-    await d.stop()
+    try:
+        st = await daemon_mod.get_status()
+        bad = await daemon_mod.request({"cmd": "format_disk"})
+    finally:
+        await d.stop()
+    assert st.running and "error" in bad

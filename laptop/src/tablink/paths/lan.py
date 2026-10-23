@@ -1,0 +1,101 @@
+"""Modes 2-5: the tablet is reachable by IP (router, either hotspot, a phone's hotspot).
+
+adb runs over TCP port 5555 ("adb tcpip"), switched on over USB once per tablet boot. The
+tablet's addresses are learned while it is on USB and remembered in the config, so no IP is
+ever typed or hard-coded.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from collections.abc import Awaitable, Callable
+
+from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError
+from tablink.paths.base import PRIORITY, Mode, Path
+from tablink.paths.netinfo import default_gateways, local_addr_towards
+
+log = logging.getLogger(__name__)
+
+CONNECT_TIMEOUT_S = 3.0
+
+
+def classify(tablet_addr: str, gateways: list[str], laptop_is_hotspot: bool) -> Mode:
+    if laptop_is_hotspot:
+        return "laptop_hotspot"
+    if tablet_addr in gateways:
+        return "tablet_hotspot"
+    return "lan"
+
+
+async def tcp_reachable(addr: str, port: int, timeout: float = 1.5) -> bool:
+    try:
+        async with asyncio.timeout(timeout):
+            _, w = await asyncio.open_connection(addr, port)
+    except (OSError, TimeoutError):
+        return False
+    w.close()
+    return True
+
+
+class LanPath:
+    mode = "lan"
+    priority = PRIORITY["lan"]
+
+    def __init__(
+        self,
+        adb: Adb,
+        known_addrs: Callable[[], list[str]],
+        laptop_is_hotspot: Callable[[], bool] = lambda: False,
+        reachable: Callable[[str, int], Awaitable[bool]] = tcp_reachable,
+        gateways: Callable[[], list[str]] = default_gateways,
+        local_addr: Callable[[str], str | None] = local_addr_towards,
+    ) -> None:
+        self.adb = adb
+        self.reachable = reachable
+        self.gateways = gateways
+        self.local_addr = local_addr
+        self.known_addrs = known_addrs
+        self.laptop_is_hotspot = laptop_is_hotspot
+        self._serial: str | None = None
+
+    async def probe(self) -> Path | None:
+        gateways = self.gateways()
+        # Known addresses first, then the gateway (the tablet itself when it is the hotspot).
+        candidates = list(dict.fromkeys([*self.known_addrs(), *gateways]))
+        for addr in candidates:
+            path = await self._probe_one(addr, gateways)
+            if path is not None:
+                return path
+        return None
+
+    async def _probe_one(self, addr: str, gateways: list[str]) -> Path | None:
+        if not await self.reachable(addr, LEGACY_TCP_PORT):
+            return None
+        try:
+            async with asyncio.timeout(CONNECT_TIMEOUT_S + 2):
+                serial = await self.adb.connect(addr, LEGACY_TCP_PORT)
+                start = time.monotonic()
+                await self.adb.shell(serial, "echo", "ok")
+                rtt = (time.monotonic() - start) * 1000
+        except (AdbError, TimeoutError) as e:
+            log.debug("lan probe %s: %s", addr, e)
+            return None
+        laptop = self.local_addr(addr)
+        if laptop is None:
+            return None
+        return Path(
+            mode=classify(addr, gateways, self.laptop_is_hotspot()),
+            tablet_addr=addr,
+            laptop_addr=laptop,
+            adb_serial=serial,
+            rtt_ms=rtt,
+            video_ok=True,
+        )
+
+    async def activate(self, path: Path) -> None:
+        self._serial = path.adb_serial
+
+    async def deactivate(self) -> None:
+        self._serial = None
