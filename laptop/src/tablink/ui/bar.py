@@ -56,7 +56,7 @@ class BarWindow(Adw.ApplicationWindow):
     def __init__(self, app: BarApp) -> None:
         super().__init__(application=app, title="TabLink")
         self.app = app
-        self.set_default_size(560, -1)
+        self.set_default_size(660, -1)
         self.set_resizable(False)
 
         header = Adw.HeaderBar()
@@ -86,6 +86,12 @@ class BarWindow(Adw.ApplicationWindow):
             ("view-app-grid-symbolic", "Recent", "Recent apps (Alt+S)", app.recents),
             ("window-close-symbolic", "Close app", "Close the app on screen", app.close_app),
             ("document-send-symbolic", "Send files", "Send files to the tablet", self.pick),
+            (
+                "video-display-symbolic",
+                "Laptop on tab",
+                "Show this laptop's desktop on the tablet",
+                app.laptop_on_tablet,
+            ),
         ]
         for icon, text, tip, action in buttons:
             btn = Gtk.Button(tooltip_text=tip)
@@ -200,6 +206,17 @@ class BarApp(Adw.Application):
                 return
         n = "1 file" if len(files) == 1 else f"{len(files)} files"
         self.toast(f"Sent {n} to Download/TabLink on the tablet", timeout=5)
+
+    async def laptop_on_tablet(self) -> None:
+        from tablink.remote_session import show_laptop_on_tablet
+        from tablink.services.remote_desktop import RemoteDesktopError
+
+        self.toast("Opening the laptop on the tablet…")
+        try:
+            msg = await show_laptop_on_tablet(self.adb, self.serial)
+        except (AdbError, RemoteDesktopError) as e:
+            msg = f"Could not open: {e}"
+        self.toast(msg, timeout=5)
 
     def disconnect(self) -> None:
         self.exit_code = EXIT_DISCONNECT

@@ -25,6 +25,11 @@ class FakeAdb:
     calls: list[list[str]] = field(default_factory=list)
     pushed: list[tuple[str, str]] = field(default_factory=list)
     stopped: list[str] = field(default_factory=list)
+    # Window focus, as (package, class); a list is consumed one entry per focus query.
+    focus: list[tuple[str, str]] = field(default_factory=lambda: [("com.miui.home", "L")])
+    ui_xml: str = ""
+    typed: list[str] = field(default_factory=list)
+    taps: list[tuple[int, int]] = field(default_factory=list)
     foreground: str = "com.example.notes"
     fail_next: str | None = None  # stderr for the next call, which then exits 1
     timeout_next: bool = False
@@ -125,6 +130,23 @@ class FakeAdb:
                 "  topResumedActivity=ActivityRecord{1 u0 " + self.foreground + "/.Main t9}\n",
                 "",
             )
+        if rest[:3] == ["dumpsys", "window", "displays"]:
+            pkg, cls = self.focus[0] if len(self.focus) == 1 else self.focus.pop(0)
+            return RunResult(
+                0,
+                f"  mCurrentFocus=null\n  mCurrentFocus=Window{{eaf5231 u0 {pkg}/{cls}}}\n",
+                "",
+            )
+        if rest[:2] == ["uiautomator", "dump"]:
+            return RunResult(0, self.ui_xml + "UI hierchary dumped to: /dev/tty\n", "")
+        if rest[:2] == ["input", "text"]:
+            self.typed.append(rest[2])
+            return RunResult(0, "", "")
+        if rest[:2] == ["input", "tap"]:
+            self.taps.append((int(rest[2]), int(rest[3])))
+            return RunResult(0, "", "")
+        if rest[:2] == ["am", "start"]:
+            return RunResult(0, "Starting: Intent { ... }\n", "")
         if rest[:2] == ["am", "force-stop"]:
             self.stopped.append(rest[2])
             return RunResult(0, "", "")

@@ -102,6 +102,29 @@ def cmd_connect(args: argparse.Namespace) -> int:
             return 130
 
 
+def cmd_remote(args: argparse.Namespace) -> int:
+    from tablink.adb import Adb, AdbError
+    from tablink.notify import desktop_notify
+    from tablink.remote_session import show_laptop_on_tablet
+    from tablink.services.remote_desktop import RemoteDesktopError
+
+    async def run() -> int:
+        adb = Adb()
+        dev = await adb.usb_device()
+        if dev is None:
+            desktop_notify("Tablet not found", "Plug the tablet in with a USB-C cable.", True)
+            return 1
+        try:
+            msg = await show_laptop_on_tablet(adb, dev.serial)
+        except (AdbError, RemoteDesktopError) as e:
+            desktop_notify("Could not show the laptop on the tablet", str(e), True)
+            return 1
+        desktop_notify("TabLink", msg)
+        return 0 if msg.startswith(("The laptop", "aFreeRDP")) else 1
+
+    return asyncio.run(run())
+
+
 def cmd_bar(args: argparse.Namespace) -> int:
     from tablink.ui import bar
 
@@ -128,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("connect", help="connect on the best path and open the tablet screen (default)")
     sub.add_parser("status", help="active link, delay and the state of each service")
     sub.add_parser("pair", help="first-time setup over USB")
+    sub.add_parser("remote", help="show this laptop's desktop on the tablet")
     hs = sub.add_parser("hotspot", help="start or stop the laptop hotspot")
     hs.add_argument("state", choices=("on", "off"))
     send = sub.add_parser("send", help="send files to the tablet")
@@ -149,6 +173,7 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "status": cmd_status,
     "connect": cmd_connect,
     "bar": cmd_bar,
+    "remote": cmd_remote,
     "pair": not_yet("T17"),
     "hotspot": not_yet("T7"),
     "send": not_yet("T15"),

@@ -243,6 +243,38 @@ class Adb:
             )
         return remote
 
+    async def focused_window(self, serial: str) -> tuple[str, str] | None:
+        """(package, window class) of the window that has input focus right now."""
+        out = await self.shell(serial, "dumpsys", "window", "displays")
+        return parse_focused_window(out)
+
+    async def type_secret(self, serial: str, text: str) -> None:
+        """Type text into the focused field. Never logged; letters and digits only."""
+        if not re.fullmatch(r"[A-Za-z0-9]+", text):
+            raise ValueError("secret must be letters and digits")
+        await self._run("shell", "input", "text", text, serial=serial, quiet_args=True)
+
+    async def tap(self, serial: str, x: int, y: int) -> None:
+        await self.shell(serial, "input", "tap", str(x), str(y))
+
+    async def ui_dump(self, serial: str) -> str:
+        """Accessibility tree (XML) of the focused window."""
+        out = await self.shell(serial, "uiautomator", "dump", "/dev/tty", timeout=20.0)
+        start = out.find("<?xml")
+        end = out.rfind("</hierarchy>")
+        return out[start : end + len("</hierarchy>")] if start >= 0 and end >= 0 else ""
+
+
+_FOCUS = re.compile(r"mCurrentFocus=Window\{[^}]*?\bu\d+\s+([A-Za-z][\w.]*)/([\w.$]+)\}")
+
+
+def parse_focused_window(dumpsys: str) -> tuple[str, str] | None:
+    m = _FOCUS.search(dumpsys)
+    if not m:
+        return None
+    pkg, cls = m.groups()
+    return pkg, (pkg + cls if cls.startswith(".") else cls)
+
 
 _PACKAGE = re.compile(r"[A-Za-z][\w]*(\.[A-Za-z][\w]*)+")
 _TOP_ACTIVITY = re.compile(
