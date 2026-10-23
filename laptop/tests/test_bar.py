@@ -66,3 +66,11 @@ async def test_send_reports_failure(tmp_path: Path) -> None:
     f.write_text("a")
     await app.send([f])
     assert app.toasts[-1].startswith("Could not send a.txt")
+
+
+async def test_wake_button_tells_user_to_type_pin() -> None:
+    fake = FakeAdb(awake=False, locked=True)
+    app = App(fake)
+    await app.wake()
+    assert fake.awake
+    assert "Type your PIN" in app.toasts[-1]

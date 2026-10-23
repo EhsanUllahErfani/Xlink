@@ -125,6 +125,30 @@ def cmd_remote(args: argparse.Namespace) -> int:
     return asyncio.run(run())
 
 
+def cmd_wake(args: argparse.Namespace) -> int:
+    from tablink.adb import Adb, AdbError
+
+    async def run() -> int:
+        adb = Adb()
+        dev = await adb.usb_device()
+        if dev is None:
+            print("tablink: tablet not connected by USB", file=sys.stderr)
+            return 1
+        try:
+            state = await adb.wake_and_show_unlock(dev.serial)
+        except AdbError as e:
+            print(f"tablink: {e}", file=sys.stderr)
+            return 1
+        print(
+            "Tablet is awake."
+            if state == "unlocked"
+            else "Tablet is awake. Type your PIN in the tablet window (tablink connect)."
+        )
+        return 0
+
+    return asyncio.run(run())
+
+
 def cmd_bar(args: argparse.Namespace) -> int:
     from tablink.ui import bar
 
@@ -152,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="active link, delay and the state of each service")
     sub.add_parser("pair", help="first-time setup over USB")
     sub.add_parser("remote", help="show this laptop's desktop on the tablet")
+    sub.add_parser("wake", help="wake the tablet and show its PIN pad")
     hs = sub.add_parser("hotspot", help="start or stop the laptop hotspot")
     hs.add_argument("state", choices=("on", "off"))
     send = sub.add_parser("send", help="send files to the tablet")
@@ -174,6 +199,7 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "connect": cmd_connect,
     "bar": cmd_bar,
     "remote": cmd_remote,
+    "wake": cmd_wake,
     "pair": not_yet("T17"),
     "hotspot": not_yet("T7"),
     "send": not_yet("T15"),

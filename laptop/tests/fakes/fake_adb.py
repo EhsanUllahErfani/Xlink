@@ -30,6 +30,9 @@ class FakeAdb:
     ui_xml: str | list[str] = ""
     typed: list[str] = field(default_factory=list)
     taps: list[tuple[int, int]] = field(default_factory=list)
+    awake: bool = True
+    locked: bool = False
+    has_pin: bool = True  # dismissing the keyguard only shows the PIN pad
     foreground: str = "com.example.notes"
     fail_next: str | None = None  # stderr for the next call, which then exits 1
     timeout_next: bool = False
@@ -127,9 +130,19 @@ class FakeAdb:
         if rest[:3] == ["dumpsys", "activity", "activities"]:
             return RunResult(
                 0,
-                "  topResumedActivity=ActivityRecord{1 u0 " + self.foreground + "/.Main t9}\n",
+                "  topResumedActivity=ActivityRecord{1 u0 " + self.foreground + "/.Main t9}\n"
+                f"   KeyguardShowing={str(self.locked).lower()} AodShowing=false\n",
                 "",
             )
+        if rest[:2] == ["dumpsys", "power"]:
+            return RunResult(0, f"  mWakefulness={'Awake' if self.awake else 'Asleep'}\n", "")
+        if rest[:2] == ["input", "keyevent"] and rest[2] == "KEYCODE_WAKEUP":
+            self.awake = True
+            return RunResult(0, "", "")
+        if rest[:2] == ["wm", "dismiss-keyguard"]:
+            if not self.has_pin:
+                self.locked = False
+            return RunResult(0, "", "")
         if rest[:3] == ["dumpsys", "window", "displays"]:
             pkg, cls = self.focus[0] if len(self.focus) == 1 else self.focus.pop(0)
             return RunResult(

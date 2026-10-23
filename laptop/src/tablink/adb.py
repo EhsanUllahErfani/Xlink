@@ -243,6 +243,26 @@ class Adb:
             )
         return remote
 
+    async def screen_state(self, serial: str) -> tuple[bool, bool]:
+        """(awake, locked) for the tablet's screen."""
+        power = await self.shell(serial, "dumpsys", "power")
+        # Android 16 / HyperOS reports the lock screen in the activity manager's dump.
+        acts = await self.shell(serial, "dumpsys", "activity", "activities")
+        awake = "mWakefulness=Awake" in power
+        locked = bool(re.search(r"\b(?:is|m)?KeyguardShowing=true", acts))
+        return awake, locked
+
+    async def wake_and_show_unlock(self, serial: str) -> str:
+        """Turn the screen on and bring up the PIN pad. Never enters a PIN."""
+        awake, locked = await self.screen_state(serial)
+        if not awake:
+            await self.keyevent(serial, "KEYCODE_WAKEUP")
+        if locked or not awake:
+            await self.shell(serial, "wm", "dismiss-keyguard")
+            _, still_locked = await self.screen_state(serial)
+            return "locked" if still_locked else "unlocked"
+        return "unlocked"
+
     async def focused_window(self, serial: str) -> tuple[str, str] | None:
         """(package, window class) of the window that has input focus right now."""
         out = await self.shell(serial, "dumpsys", "window", "displays")

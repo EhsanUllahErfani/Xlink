@@ -56,7 +56,7 @@ class BarWindow(Adw.ApplicationWindow):
     def __init__(self, app: BarApp) -> None:
         super().__init__(application=app, title="TabLink")
         self.app = app
-        self.set_default_size(660, -1)
+        self.set_default_size(740, -1)
         self.set_resizable(False)
 
         header = Adw.HeaderBar()
@@ -81,6 +81,12 @@ class BarWindow(Adw.ApplicationWindow):
         row.set_margin_start(12)
         row.set_margin_end(12)
         buttons: list[tuple[str, str, str, Callable[[], Awaitable[None]]]] = [
+            (
+                "system-lock-screen-symbolic",
+                "Wake",
+                "Wake the tablet and show its PIN pad",
+                app.wake,
+            ),
             ("go-previous-symbolic", "Back", "Back (right-click)", app.back),
             ("go-home-symbolic", "Home", "Home (middle-click)", app.home),
             ("view-app-grid-symbolic", "Recent", "Recent apps (Alt+S)", app.recents),
@@ -167,6 +173,17 @@ class BarApp(Adw.Application):
             await self.adb.keyevent(self.serial, key)
         except AdbError as e:
             self.toast(f"Tablet did not respond: {e}")
+
+    async def wake(self) -> None:
+        try:
+            state = await self.adb.wake_and_show_unlock(self.serial)
+        except AdbError as e:
+            self.toast(f"Tablet did not respond: {e}")
+            return
+        if state == "locked":
+            self.toast("Type your PIN in the tablet window with the laptop keyboard", timeout=6)
+        else:
+            self.toast("Tablet is awake")
 
     async def back(self) -> None:
         await self._key("KEYCODE_BACK")

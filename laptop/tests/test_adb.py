@@ -176,3 +176,22 @@ async def test_push_returns_remote_path_and_scans(fake: FakeAdb, adb: Adb, tmp_p
     assert remote == "/sdcard/Download/TabLink/my photo.jpg"
     assert ["push", str(f), remote] == fake.calls[-2][-3:]
     assert "file:///sdcard/Download/TabLink/my%20photo.jpg" in fake.calls[-1]
+
+
+@pytest.mark.parametrize(
+    ("awake", "locked", "has_pin", "expected", "woke"),
+    [
+        (True, False, True, "unlocked", False),  # already in use: nothing pressed
+        (False, True, True, "locked", True),  # asleep with PIN: wake, PIN pad up
+        (False, True, False, "unlocked", True),  # asleep, swipe-only lock: fully unlocked
+        (True, True, True, "locked", False),  # lock screen showing: PIN pad up
+    ],
+)
+async def test_wake_and_show_unlock(
+    awake: bool, locked: bool, has_pin: bool, expected: str, woke: bool
+) -> None:
+    fake = FakeAdb(awake=awake, locked=locked, has_pin=has_pin)
+    adb = Adb(runner=fake, adb_path="adb")
+    assert await adb.wake_and_show_unlock(USB_SERIAL) == expected
+    assert (["input", "keyevent", "KEYCODE_WAKEUP"] in [c[-3:] for c in fake.calls]) == woke
+    assert not any("text" in c for c in fake.calls)  # never types a PIN
