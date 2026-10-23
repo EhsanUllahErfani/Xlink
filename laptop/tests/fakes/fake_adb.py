@@ -25,11 +25,21 @@ class FakeAdb:
     calls: list[list[str]] = field(default_factory=list)
     pushed: list[tuple[str, str]] = field(default_factory=list)
     stopped: list[str] = field(default_factory=list)
+    installed: list[str] = field(default_factory=list)
     # Window focus, as (package, class); a list is consumed one entry per focus query.
     focus: list[tuple[str, str]] = field(default_factory=lambda: [("com.miui.home", "L")])
     ui_xml: str | list[str] = ""
     typed: list[str] = field(default_factory=list)
     taps: list[tuple[int, int]] = field(default_factory=list)
+    props: dict[str, str] = field(
+        default_factory=lambda: {
+            "ro.product.cpu.abilist": "arm64-v8a,armeabi-v7a,armeabi",
+            "persist.security.adbinput": "1",
+            "persist.security.adbinstall": "1",
+        }
+    )
+    packages: dict[str, int] = field(default_factory=dict)
+    refuse_install: bool = False
     awake: bool = True
     locked: bool = False
     has_pin: bool = True  # dismissing the keyguard only shows the PIN pad
@@ -119,6 +129,13 @@ class FakeAdb:
     def _shell(self, serial: str | None, rest: list[str]) -> RunResult:
         if rest[:2] == ["getprop", "service.adb.tcp.port"]:
             return RunResult(0, "5555\n" if self.tcpip_enabled else "\n", "")
+        if rest[:1] == ["getprop"] and rest[1] in self.props:
+            return RunResult(0, self.props[rest[1]] + "\n", "")
+        if rest[:4] == ["pm", "list", "packages", "--show-versioncode"]:
+            pkg = rest[4]
+            if pkg in self.packages:
+                return RunResult(0, f"package:{pkg} versionCode:{self.packages[pkg]}\n", "")
+            return RunResult(0, "", "")
         if rest[:2] == ["getprop", "ro.product.device"]:
             return RunResult(0, "taiko\n", "")
         if rest[:1] == ["ip"]:
@@ -178,4 +195,9 @@ class FakeAdb:
         return RunResult(0, f"{rest[0]}: 1 file pushed, 0 skipped.\n", "")
 
     def _install(self, serial: str | None, rest: list[str]) -> RunResult:
+        if self.refuse_install:
+            return RunResult(
+                1, "", "Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]"
+            )
+        self.installed.append(rest[-1])
         return RunResult(0, "Performing Streamed Install\nSuccess\n", "")

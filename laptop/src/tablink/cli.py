@@ -137,6 +137,36 @@ def cmd_remote(args: argparse.Namespace) -> int:
     return asyncio.run(run())
 
 
+def cmd_pair(args: argparse.Namespace) -> int:
+    from tablink.adb import Adb, AdbError
+    from tablink.pairing import PairError, Pairing
+    from tablink.remote_session import FocusLost
+    from tablink.services.remote_desktop import RemoteDesktopError
+
+    s = Style(sys.stdout)
+    marks = {
+        "run": s.dim("…"),
+        "ok": s.ok("✓"),
+        "skip": s.dim("✓"),
+        "wait": s.warn("!"),
+        "fail": s.bad("✗"),
+    }
+
+    def progress(state: str, text: str) -> None:
+        print(f"  {marks.get(state, ' ')} {text}", flush=True)
+
+    print(s.bold("TabLink setup") + s.dim("  (safe to run again; finished steps are skipped)"))
+    try:
+        asyncio.run(Pairing(Adb(), progress).run())
+    except (PairError, FocusLost) as e:
+        progress("fail", str(e))
+        return 1
+    except (AdbError, RemoteDesktopError, OSError) as e:
+        progress("fail", f"{e}. Run `tablink pair` again; finished steps are skipped.")
+        return 1
+    return 0
+
+
 def cmd_wake(args: argparse.Namespace) -> int:
     from tablink.adb import Adb, AdbError
 
@@ -212,7 +242,7 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "bar": cmd_bar,
     "remote": cmd_remote,
     "wake": cmd_wake,
-    "pair": not_yet("T17"),
+    "pair": cmd_pair,
     "hotspot": not_yet("T7"),
     "send": not_yet("T15"),
     "doctor": not_yet("T18"),
