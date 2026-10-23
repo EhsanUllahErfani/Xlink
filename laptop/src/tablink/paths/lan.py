@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 
 from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError
 from tablink.paths.base import PRIORITY, Mode, Path
-from tablink.paths.netinfo import default_gateways, local_addr_towards
+from tablink.paths.netinfo import default_gateways, local_addr_towards, neighbours
 from tablink.paths.tunnel import Tunnel
 from tablink.ports import CONTROL, usb_reverse_ports
 
@@ -49,7 +49,7 @@ class LanPath:
         self,
         adb: Adb,
         known_addrs: Callable[[], list[str]],
-        laptop_is_hotspot: Callable[[], bool] = lambda: False,
+        hotspot_iface: Callable[[], Awaitable[str | None]] | None = None,
         reachable: Callable[[str, int], Awaitable[bool]] = tcp_reachable,
         gateways: Callable[[], list[str]] = default_gateways,
         local_addr: Callable[[str], str | None] = local_addr_towards,
@@ -61,19 +61,23 @@ class LanPath:
         self.gateways = gateways
         self.local_addr = local_addr
         self.known_addrs = known_addrs
-        self.laptop_is_hotspot = laptop_is_hotspot
+        self.hotspot_iface = hotspot_iface
+        self.neighbours = neighbours
 
     async def probe(self) -> Path | None:
         gateways = self.gateways()
-        # Known addresses first, then the gateway (the tablet itself when it is the hotspot).
-        candidates = list(dict.fromkeys([*self.known_addrs(), *gateways]))
+        iface = await self.hotspot_iface() if self.hotspot_iface else None
+        clients = self.neighbours(iface) if iface else []
+        # Laptop-hotspot clients first (the tablet is one of very few), then known addresses,
+        # then the gateway (the tablet itself when it is the hotspot).
+        candidates = list(dict.fromkeys([*clients, *self.known_addrs(), *gateways]))
         for addr in candidates:
-            path = await self._probe_one(addr, gateways)
+            path = await self._probe_one(addr, gateways, addr in clients)
             if path is not None:
                 return path
         return None
 
-    async def _probe_one(self, addr: str, gateways: list[str]) -> Path | None:
+    async def _probe_one(self, addr: str, gateways: list[str], on_hotspot: bool) -> Path | None:
         if not await self.reachable(addr, LEGACY_TCP_PORT):
             return None
         try:
@@ -89,7 +93,7 @@ class LanPath:
         if laptop is None:
             return None
         return Path(
-            mode=classify(addr, gateways, self.laptop_is_hotspot()),
+            mode=classify(addr, gateways, on_hotspot),
             tablet_addr=addr,
             laptop_addr=laptop,
             adb_serial=serial,

@@ -42,8 +42,8 @@ class FakeGrd:
         a = list(argv)
         self.calls.append(a)
         if a[0] == "openssl":
-            Path(a[a.index("-keyout") + 1]).write_text("key")  # noqa: ASYNC240
-            Path(a[a.index("-out") + 1]).write_text("cert")  # noqa: ASYNC240
+            Path(a[a.index("-keyout") + 1]).write_text("key")
+            Path(a[a.index("-out") + 1]).write_text("cert")
             return RunResult(0, "", "")
         if a[0] == "systemctl":
             if a[2] == "is-active":

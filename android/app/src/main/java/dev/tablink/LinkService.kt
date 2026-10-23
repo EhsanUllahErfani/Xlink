@@ -10,6 +10,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
+import android.net.wifi.WifiNetworkSuggestion
 import android.os.IBinder
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -65,7 +67,10 @@ class LinkService : Service() {
                 try {
                     while (true) {
                         val line = conn.readLine() ?: break
-                        if (Protocol.parse(line).type == "clip") applyClip(Protocol.parse(line).message)
+                        when (Protocol.parse(line).type) {
+                            "clip" -> applyClip(Protocol.parse(line).message)
+                            "wifi" -> rememberHotspot(line)
+                        }
                     }
                 } finally {
                     sender.cancel()
@@ -85,6 +90,25 @@ class LinkService : Service() {
         android.os.Handler(mainLooper).post {
             cm.setPrimaryClip(ClipData.newPlainText("TabLink", text))
         }
+    }
+
+    /**
+     * The laptop is about to start its hotspot: offer it to Android as a suggested network, so
+     * the tablet joins by itself when no other known Wi-Fi is around. Android keeps the
+     * password; TabLink does not store it.
+     */
+    private fun rememberHotspot(line: String) {
+        val ssid = Protocol.stringField(line, "ssid") ?: return
+        val psk = Protocol.stringField(line, "psk") ?: return
+        if (ssid.isEmpty() || psk.length < 8) return
+        val wifi = getSystemService(WifiManager::class.java)
+        val suggestion = WifiNetworkSuggestion.Builder()
+            .setSsid(ssid)
+            .setWpa2Passphrase(psk)
+            .setIsAppInteractionRequired(false)
+            .build()
+        wifi.removeNetworkSuggestions(listOf(suggestion))
+        wifi.addNetworkSuggestions(listOf(suggestion))
     }
 
     private fun notification(): Notification {

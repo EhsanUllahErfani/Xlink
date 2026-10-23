@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import os
 import sys
 from collections.abc import Callable
@@ -114,6 +115,20 @@ def cmd_connect(args: argparse.Namespace) -> int:
             return 130
 
 
+async def active_serial(adb: object) -> tuple[str | None, str | None]:
+    """(adb serial, mode) of the link the daemon is using; USB if the daemon is not running."""
+    st = await daemon.get_status()
+    if st.running and st.serial:
+        return st.serial, st.mode
+    dev = await adb.usb_device()  # type: ignore[attr-defined]
+    return (dev.serial, "usb") if dev else (None, None)
+
+
+NO_TABLET_TEXT = (
+    "Plug in the USB cable, or put both devices on the same Wi-Fi, hotspot or Tailscale."
+)
+
+
 def cmd_remote(args: argparse.Namespace) -> int:
     from tablink.adb import Adb, AdbError
     from tablink.notify import desktop_notify
@@ -122,12 +137,12 @@ def cmd_remote(args: argparse.Namespace) -> int:
 
     async def run() -> int:
         adb = Adb()
-        dev = await adb.usb_device()
-        if dev is None:
-            desktop_notify("Tablet not found", "Plug the tablet in with a USB-C cable.", True)
+        serial, _ = await active_serial(adb)
+        if serial is None:
+            desktop_notify("Tablet not found", NO_TABLET_TEXT, True)
             return 1
         try:
-            msg = await show_laptop_on_tablet(adb, dev.serial)
+            msg = await show_laptop_on_tablet(adb, serial)
         except (AdbError, RemoteDesktopError) as e:
             desktop_notify("Could not show the laptop on the tablet", str(e), True)
             return 1
@@ -166,25 +181,50 @@ def cmd_pair(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hotspot(args: argparse.Namespace) -> int:
+    if args.state == "password":
+        from tablink.secrets import KeyringStore
+
+        pw = KeyringStore("hotspot-password").get()
+        if pw is None:
+            print("No hotspot password yet: run `tablink hotspot on` first.", file=sys.stderr)
+            return 1
+        ssid = config.load().network.hotspot_ssid
+        print(f"Wi-Fi name: {ssid}\nPassword:  {pw}")  # shown only when asked for
+        return 0
+    try:
+        # Starting the hotspot can take NetworkManager a while.
+        reply = asyncio.run(daemon.request({"cmd": f"hotspot_{args.state}"}, timeout=60.0))
+    except (OSError, TimeoutError, ValueError):
+        print("tablink: the TabLink service is not running (systemctl --user start tablinkd)",
+              file=sys.stderr)  # fmt: skip
+        return 1
+    print(reply.get("message", reply))
+    return 0 if reply.get("ok") else 1
+
+
 def cmd_wake(args: argparse.Namespace) -> int:
     from tablink.adb import Adb, AdbError
 
     async def run() -> int:
         adb = Adb()
-        dev = await adb.usb_device()
-        if dev is None:
-            print("tablink: tablet not connected by USB", file=sys.stderr)
+        serial, mode = await active_serial(adb)
+        if serial is None:
+            print(f"tablink: tablet not found. {NO_TABLET_TEXT}", file=sys.stderr)
             return 1
         try:
-            state = await adb.wake_and_show_unlock(dev.serial)
+            state = await adb.wake_and_show_unlock(serial)
         except AdbError as e:
             print(f"tablink: {e}", file=sys.stderr)
             return 1
-        print(
-            "Tablet is awake."
-            if state == "unlocked"
-            else "Tablet is awake. Type your PIN in the tablet window (tablink connect)."
-        )
+        via = f" (via {MODE_LABELS.get(mode or '', mode)})" if mode else ""
+        if state == "unlocked":
+            print(f"Tablet is awake and unlocked{via}.")
+            return 0
+        # Locked: open the tablet window so the PIN can be typed with the laptop keyboard.
+        with contextlib.suppress(OSError, TimeoutError, ValueError):
+            await daemon.request({"cmd": "open_screen"})
+        print(f"Tablet is awake{via}. Type your PIN in the tablet window with the laptop keyboard.")
         return 0
 
     return asyncio.run(run())
@@ -219,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("remote", help="show this laptop's desktop on the tablet")
     sub.add_parser("wake", help="wake the tablet and show its PIN pad")
     hs = sub.add_parser("hotspot", help="start or stop the laptop hotspot")
-    hs.add_argument("state", choices=("on", "off"))
+    hs.add_argument("state", choices=("on", "off", "password"))
     send = sub.add_parser("send", help="send files to the tablet")
     send.add_argument("files", nargs="+", metavar="FILE")
     sub.add_parser("doctor", help="test every link and print a fix for each failure")
@@ -242,7 +282,7 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "remote": cmd_remote,
     "wake": cmd_wake,
     "pair": cmd_pair,
-    "hotspot": not_yet("T7"),
+    "hotspot": cmd_hotspot,
     "send": not_yet("T15"),
     "doctor": not_yet("T18"),
     "path": not_yet("T5"),

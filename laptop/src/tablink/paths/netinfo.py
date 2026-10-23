@@ -32,3 +32,18 @@ def local_addr_towards(addr: str) -> str | None:
             return local
     except OSError:
         return None
+
+
+def neighbours(iface: str, arp_file: Path = Path("/proc/net/arp")) -> list[str]:
+    """IPv4 neighbours this laptop has talked to on `iface` (e.g. hotspot clients)."""
+    try:
+        lines = arp_file.read_text().splitlines()[1:]
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        f = line.split()
+        # IP address, HW type, Flags, HW address, Mask, Device; flag 0x2 = complete
+        if len(f) >= 6 and f[5] == iface and int(f[2], 16) & 0x2:
+            out.append(f[0])
+    return out

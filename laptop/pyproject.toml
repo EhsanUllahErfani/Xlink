@@ -43,6 +43,10 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
 # Tool runners take a per-call timeout so a hung external program is killed, not just abandoned.
 ignore = ["ASYNC109"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests and fakes read small temp files inside async tests; blocking there is harmless.
+"tests/**" = ["ASYNC240"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

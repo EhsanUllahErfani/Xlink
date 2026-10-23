@@ -1,6 +1,7 @@
 """TabLink's secrets in the GNOME keyring (never in config files or logs).
 
-Only one secret lives here: the control-channel pairing token shared with the tablet app.
+Two secrets live here: the control-channel pairing token shared with the tablet app, and the
+laptop hotspot's Wi-Fi password.
 """
 
 from __future__ import annotations
@@ -9,8 +10,7 @@ import secrets as pysecrets
 from collections.abc import Callable
 from typing import Any, Protocol
 
-ATTRS = {"application": "tablink", "kind": "control-token"}
-LABEL = "TabLink pairing token"
+LABELS = {"control-token": "TabLink pairing token", "hotspot-password": "TabLink hotspot password"}
 
 
 class Store(Protocol):
@@ -20,7 +20,13 @@ class Store(Protocol):
 
 
 class KeyringStore:
-    """GNOME keyring through the Secret Service API."""
+    """GNOME keyring through the Secret Service API. One store per kind of secret."""
+
+    def __init__(self, kind: str = "control-token") -> None:
+        if kind not in LABELS:
+            raise ValueError(f"unknown secret kind: {kind}")
+        self.kind = kind
+        self.attrs = {"application": "tablink", "kind": kind}
 
     def _collection(self) -> Any:
         import secretstorage
@@ -32,12 +38,12 @@ class KeyringStore:
         return coll
 
     def get(self) -> str | None:
-        for item in self._collection().search_items(ATTRS):
+        for item in self._collection().search_items(self.attrs):
             return str(item.get_secret().decode())
         return None
 
     def set(self, value: str) -> None:
-        self._collection().create_item(LABEL, ATTRS, value.encode(), replace=True)
+        self._collection().create_item(LABELS[self.kind], self.attrs, value.encode(), replace=True)
 
 
 class MemoryStore:
@@ -66,3 +72,11 @@ def control_token(
         token = make()
         store.set(token)
     return token
+
+
+def get_or_create(store: Store, make: Callable[[], str]) -> str:
+    value = store.get()
+    if value is None:
+        value = make()
+        store.set(value)
+    return value

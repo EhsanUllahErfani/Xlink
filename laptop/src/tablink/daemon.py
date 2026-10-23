@@ -11,6 +11,7 @@ import contextlib
 import json
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -66,10 +67,12 @@ def socket_path() -> Path:
     return runtime_dir() / "tablinkd.sock"
 
 
-async def request(msg: dict[str, Any], path: Path | None = None) -> Any:
+async def request(
+    msg: dict[str, Any], path: Path | None = None, timeout: float = REQUEST_TIMEOUT_S
+) -> Any:
     """Send one request to the daemon and return its reply. Raises OSError if it is not running."""
     path = path or socket_path()
-    async with asyncio.timeout(REQUEST_TIMEOUT_S):
+    async with asyncio.timeout(timeout):
         reader, writer = await asyncio.open_unix_connection(str(path))
         try:
             writer.write(json.dumps(msg).encode() + b"\n")
@@ -104,6 +107,7 @@ class Daemon:
         background: list[Any] | None = None,
     ) -> None:
         self.background = background or []  # objects with start() / async stop()
+        self.local_handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {}
         self.sock = sock or socket_path()
         self.status = DaemonStatus(running=True)
         self.control = control
@@ -135,6 +139,8 @@ class Daemon:
             return asdict(self.status)
         if cmd == "open_screen" and self.screen is not None:
             return {"ok": True, "message": await self.screen.open()}
+        if cmd in self.local_handlers:
+            return await self.local_handlers[cmd](msg)
         if cmd == "close_screen" and self.screen is not None:
             await self.screen.close()
             return {"ok": True, "message": "Closed."}
@@ -194,15 +200,19 @@ def build() -> Daemon:
     """The real daemon, wired to adb, the path providers, the screen and remote desktop."""
     from tablink import config as config_mod
     from tablink.adb import Adb
+    from tablink.nmcli import Nmcli, NmError
+    from tablink.nmcli import new_password as new_hotspot_password
     from tablink.notify import desktop_notify, private_notify
     from tablink.paths.lan import LanPath
+    from tablink.paths.tailscale import TailscalePath
     from tablink.proc import subprocess_spawner
     from tablink.remote_session import prepare_remote
     from tablink.screen import ScreenSession
-    from tablink.secrets import KeyringStore, control_token
+    from tablink.secrets import KeyringStore, control_token, get_or_create
     from tablink.services.clipboard import ClipboardSync, ShellBridge
     from tablink.services.files import FileReceiver
     from tablink.services.scrcpy import ScrcpyService
+    from tablink.tailscale import Tailscale
 
     cfg = config_mod.load()
     adb = Adb()
@@ -223,14 +233,30 @@ def build() -> Daemon:
         prepare_wifi=True,
         on_wifi_addrs=learn,
     )
+    nm = Nmcli()
+
+    async def hotspot_iface() -> str | None:
+        try:
+            return await nm.hotspot_device()
+        except Exception:  # NetworkManager busy or missing: treat as no hotspot
+            return None
+
     lan = LanPath(
         adb,
         lambda: config_mod.load().network.known_tablet_addrs,
+        hotspot_iface=hotspot_iface,
         control_port=cfg.network.control_port,
     )
     scrcpy = ScrcpyService(adb, cfg.video, title=f"{cfg.device.tablet_name} · TabLink")
     screen = ScreenSession(scrcpy, subprocess_spawner, cfg, desktop_notify)
-    manager = PathManager([usb, lan], [screen])
+    ts_path = TailscalePath(
+        adb,
+        Tailscale(),
+        enabled=lambda: config_mod.load().tailscale.enabled,
+        name_hint=lambda: config_mod.load().device.tablet_name,
+        control_port=cfg.network.control_port,
+    )
+    manager = PathManager([usb, lan, ts_path], [screen])
     holder: dict[str, Any] = {}
 
     async def remote(msg: dict[str, Any]) -> dict[str, Any]:
@@ -281,6 +307,35 @@ def build() -> Daemon:
     )
     d = Daemon(control=control, manager=manager, screen=screen, background=[clipboard])
     holder["d"] = d
+
+    async def hotspot_on(msg: dict[str, Any]) -> dict[str, Any]:
+        ssid = config_mod.load().network.hotspot_ssid
+        password = get_or_create(KeyringStore("hotspot-password"), new_hotspot_password)
+        # Tell the tablet first, while it can still be reached on the current link.
+        told = await control.broadcast({"type": "wifi", "ssid": ssid, "psk": password})
+        try:
+            dev = await nm.hotspot_on(ssid, password)
+        except NmError as e:
+            return {"ok": False, "message": f"Could not start the hotspot: {e}"}
+        await manager.check()
+        text = f"Hotspot \u201c{ssid}\u201d is on ({dev})."
+        if told:
+            text += " The tablet saved it and joins by itself when no other Wi-Fi is around."
+        else:
+            text += (
+                " The tablet was not linked: run `tablink hotspot password` to see the password."
+            )
+        return {"ok": True, "message": text}
+
+    async def hotspot_off(msg: dict[str, Any]) -> dict[str, Any]:
+        try:
+            was_on = await nm.hotspot_off()
+        except NmError as e:
+            return {"ok": False, "message": f"Could not stop the hotspot: {e}"}
+        await manager.check()
+        return {"ok": True, "message": "Hotspot is off." if was_on else "Hotspot was not on."}
+
+    d.local_handlers = {"hotspot_on": hotspot_on, "hotspot_off": hotspot_off}
     holder["control"] = control
     return d
 
