@@ -88,6 +88,20 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0 if st.running and st.mode else 3
 
 
+def cmd_connect(args: argparse.Namespace) -> int:
+    from tablink import launcher
+    from tablink.notify import desktop_notify
+
+    with launcher.single_instance() as first:
+        if not first:
+            desktop_notify("TabLink", "The tablet window is already open.")
+            return launcher.ALREADY_OPEN
+        try:
+            return asyncio.run(launcher.connect(desktop_notify))
+        except KeyboardInterrupt:
+            return 130
+
+
 def not_yet(task: str) -> Callable[[argparse.Namespace], int]:
     def run(args: argparse.Namespace) -> int:
         print(f"tablink {args.command}: not implemented yet ({task})", file=sys.stderr)
@@ -123,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "status": cmd_status,
-    "connect": not_yet("T4"),
+    "connect": cmd_connect,
     "pair": not_yet("T17"),
     "hotspot": not_yet("T7"),
     "send": not_yet("T15"),

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=TabLink
+GenericName=Tablet Link
+Comment=Show and control your tablet on this laptop
+Exec=tablink connect
+Icon=tablink
+Terminal=false
+Categories=Utility;
+Keywords=tablet;android;screen;mirror;scrcpy;redmi;
+StartupNotify=false
+SingleMainWindow=true
