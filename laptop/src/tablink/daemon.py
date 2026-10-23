@@ -212,6 +212,7 @@ def build() -> Daemon:
     from tablink.services.clipboard import ClipboardSync, ShellBridge
     from tablink.services.files import FileReceiver
     from tablink.services.scrcpy import ScrcpyService
+    from tablink.services.wake import wake_info, wake_screen
     from tablink.tailscale import Tailscale
 
     cfg = config_mod.load()
@@ -294,13 +295,31 @@ def build() -> Daemon:
         await asyncio.to_thread(private_notify, heading, text)
         return {"type": "notification", "ok": True}
 
+    async def wake_laptop(msg: dict[str, Any]) -> dict[str, Any]:
+        ok = await asyncio.to_thread(wake_screen)
+        return {
+            "type": "wake_laptop",
+            "ok": ok,
+            "message": "The laptop screen is on." if ok else "Could not turn the screen on.",
+        }
+
     def hello() -> dict[str, Any]:
         path = holder["d"].path
-        return {"mode": path.mode if path else None}
+        # The wake details let the tablet send a magic packet later, when the laptop sleeps.
+        return {
+            "mode": path.mode if path else None,
+            **{f"wake_{k}": v for k, v in wake_info().items()},
+        }
 
     control = ControlServer(
         cfg.network.control_port,
-        {"remote_ready": remote, "screen": open_screen, "clip": clip, "notification": notification},
+        {
+            "remote_ready": remote,
+            "screen": open_screen,
+            "clip": clip,
+            "notification": notification,
+            "wake_laptop": wake_laptop,
+        },
         hello_extra=hello,
         token=lambda: control_token(keyring),
         files=FileReceiver(),

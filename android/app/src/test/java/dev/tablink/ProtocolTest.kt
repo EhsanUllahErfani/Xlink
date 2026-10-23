@@ -87,4 +87,26 @@ class ProtocolTest {
             Protocol.fileHeader("a\"b.jpg", 10),
         )
     }
+
+    @Test
+    fun helloCarriesWakeDetails() {
+        val r = Protocol.parse(
+            "{\"type\": \"hello\", \"mode\": \"lan\", \"wake_mac\": \"60:ff:9e:01:02:03\", " +
+                "\"wake_ip\": \"10.4.151.217\"}",
+        )
+        assertEquals("60:ff:9e:01:02:03", r.wakeMac)
+        assertEquals("10.4.151.217", r.wakeIp)
+        val bad = Protocol.parse("{\"type\": \"hello\", \"wake_mac\": \"zz\", \"wake_ip\": \"x;rm\"}")
+        assertEquals("", bad.wakeMac)
+        assertEquals("", bad.wakeIp)
+    }
+
+    @Test
+    fun magicPacketIsStandard() {
+        val p = WakeLaptop.magicPacket("60:ff:9e:01:02:03")
+        assertEquals(102, p.size)
+        assertTrue(p.take(6).all { it == 0xFF.toByte() })
+        assertEquals(0x60.toByte(), p[6])
+        assertEquals(0x03.toByte(), p[101])
+    }
 }

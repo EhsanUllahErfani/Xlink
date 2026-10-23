@@ -68,6 +68,22 @@ class ControlClient(
             }
         }
 
+    /** The laptop's hello (link mode, wake details), or null if unreachable. No pairing needed. */
+    suspend fun hello(): Protocol.Reply? = withContext(Dispatchers.IO) {
+        try {
+            Socket().use { s ->
+                s.connect(InetSocketAddress(host, port), 1_500)
+                s.soTimeout = 2_000
+                val c = Conn(s)
+                c.readLine() // challenge
+                c.write(Protocol.request("hello"))
+                c.read().takeIf { it.type == "hello" }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** The laptop's active link mode ("usb", "lan", ...) or null if unreachable. No pairing needed. */
     suspend fun linkMode(): String? = withContext(Dispatchers.IO) {
         try {

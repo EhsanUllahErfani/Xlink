@@ -139,9 +139,10 @@ private fun TabLinkScreen(client: ControlClient) {
         LaptopConnection.absorbPendingPassword(context)
         while (true) {
             if (!busy) {
-                val m = client.linkMode()
-                connected = m != null
-                mode = m ?: ""
+                val h = client.hello()
+                connected = h != null
+                mode = h?.mode ?: ""
+                if (h != null) WakeLaptop.remember(context, h)
             }
             delay(3_000)
         }
@@ -204,6 +205,21 @@ private fun TabLinkScreen(client: ControlClient) {
                     Text("Show tablet on laptop", fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                     Text("Control this tablet from the laptop", fontSize = 13.sp)
                 }
+            }
+            TextButton(
+                onClick = {
+                    if (!busy) {
+                        busy = true
+                        message = "Waking the laptop…"
+                        scope.launch {
+                            message = WakeLaptop.wake(context, client)
+                            busy = false
+                        }
+                    }
+                },
+                enabled = !busy,
+            ) {
+                Text("Wake laptop", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             }
             Box(Modifier.height(64.dp), Alignment.Center) {
                 if (busy) {

@@ -7,6 +7,15 @@ Exec=tablink connect
 Icon=tablink
 Terminal=false
 Categories=Utility;
-Keywords=tablet;android;screen;mirror;scrcpy;redmi;
+Keywords=tablet;android;screen;mirror;scrcpy;redmi;wake;unlock;
 StartupNotify=false
 SingleMainWindow=true
+Actions=WakeTablet;LaptopOnTablet;
+
+[Desktop Action WakeTablet]
+Name=Wake tablet
+Exec=tablink wake
+
+[Desktop Action LaptopOnTablet]
+Name=Show laptop on tablet
+Exec=tablink remote

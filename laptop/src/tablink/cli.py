@@ -219,26 +219,27 @@ def cmd_path(args: argparse.Namespace) -> int:
 
 def cmd_wake(args: argparse.Namespace) -> int:
     from tablink.adb import Adb, AdbError
+    from tablink.notify import desktop_notify  # also prints, for terminal users
 
     async def run() -> int:
         adb = Adb()
         serial, mode = await active_serial(adb)
         if serial is None:
-            print(f"tablink: tablet not found. {NO_TABLET_TEXT}", file=sys.stderr)
+            desktop_notify("Tablet not reachable", NO_TABLET_TEXT, True)
             return 1
         try:
             state = await adb.wake_and_show_unlock(serial)
         except AdbError as e:
-            print(f"tablink: {e}", file=sys.stderr)
+            desktop_notify("Could not wake the tablet", str(e), True)
             return 1
         via = f" (via {MODE_LABELS.get(mode or '', mode)})" if mode else ""
         if state == "unlocked":
-            print(f"Tablet is awake and unlocked{via}.")
+            desktop_notify("Tablet is awake", f"Unlocked and ready{via}.")
             return 0
-        # Locked: open the tablet window so the PIN can be typed with the laptop keyboard.
+        # Locked: open the tablet window; its unlock pad pops up for the pattern or PIN.
         with contextlib.suppress(OSError, TimeoutError, ValueError):
             await daemon.request({"cmd": "open_screen"})
-        print(f"Tablet is awake{via}. Type your PIN in the tablet window with the laptop keyboard.")
+        desktop_notify("Tablet is awake", f"Draw your pattern on the unlock pad{via}.")
         return 0
 
     return asyncio.run(run())
