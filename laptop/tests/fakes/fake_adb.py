@@ -27,7 +27,7 @@ class FakeAdb:
     stopped: list[str] = field(default_factory=list)
     # Window focus, as (package, class); a list is consumed one entry per focus query.
     focus: list[tuple[str, str]] = field(default_factory=lambda: [("com.miui.home", "L")])
-    ui_xml: str = ""
+    ui_xml: str | list[str] = ""
     typed: list[str] = field(default_factory=list)
     taps: list[tuple[int, int]] = field(default_factory=list)
     foreground: str = "com.example.notes"
@@ -137,8 +137,12 @@ class FakeAdb:
                 f"  mCurrentFocus=null\n  mCurrentFocus=Window{{eaf5231 u0 {pkg}/{cls}}}\n",
                 "",
             )
-        if rest[:2] == ["uiautomator", "dump"]:
-            return RunResult(0, self.ui_xml + "UI hierchary dumped to: /dev/tty\n", "")
+        if rest and rest[0].startswith("uiautomator dump /data/local/tmp/"):
+            if isinstance(self.ui_xml, list):
+                xml = self.ui_xml[0] if len(self.ui_xml) == 1 else self.ui_xml.pop(0)
+            else:
+                xml = self.ui_xml
+            return RunResult(0, xml, "")
         if rest[:2] == ["input", "text"]:
             self.typed.append(rest[2])
             return RunResult(0, "", "")

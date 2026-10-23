@@ -104,3 +104,11 @@ async def test_type_secret_rejects_shell_chars() -> None:
     adb = Adb(runner=FakeAdb(), adb_path="adb")
     with pytest.raises(ValueError):
         await adb.type_secret(USB_SERIAL, "a;reboot")
+
+
+async def test_ok_is_measured_again_after_keyboard_moves_dialog() -> None:
+    moved = DIALOG.replace("[1250,1550][1360,1620]", "[1250,1110][1360,1186]")
+    fake = FakeAdb(focus=[RDP], ui_xml=[DIALOG, moved])
+    adb = Adb(runner=fake, adb_path="adb")
+    await open_laptop(adb, USB_SERIAL, "127.0.0.1", 3389, "tablink", PW, poll_s=0)
+    assert fake.taps == [(795, 1308), (1305, 1148)]

@@ -258,8 +258,17 @@ class Adb:
         await self.shell(serial, "input", "tap", str(x), str(y))
 
     async def ui_dump(self, serial: str) -> str:
-        """Accessibility tree (XML) of the focused window."""
-        out = await self.shell(serial, "uiautomator", "dump", "/dev/tty", timeout=20.0)
+        """Accessibility tree (XML) of the focused window.
+
+        Android 16 no longer prints the dump to /dev/tty, so it goes through a file in
+        /data/local/tmp (readable only by the shell user) that is removed right away.
+        """
+        tmp = "/data/local/tmp/tablink-ui.xml"
+        out = await self.shell(
+            serial,
+            f"uiautomator dump {tmp} >/dev/null && cat {tmp}; rm -f {tmp}",
+            timeout=20.0,
+        )
         start = out.find("<?xml")
         end = out.rfind("</hierarchy>")
         return out[start : end + len("</hierarchy>")] if start >= 0 and end >= 0 else ""

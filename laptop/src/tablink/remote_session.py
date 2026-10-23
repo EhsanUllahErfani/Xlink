@@ -124,8 +124,12 @@ async def open_laptop(
         await adb.tap(serial, *dialog.password_field.center)
         await _require_focus(adb, serial)
         await adb.type_secret(serial, password)
+        # The on-screen keyboard opens while typing and moves the dialog: measure OK again.
+        await asyncio.sleep(0.4)
+        moved = find_login_dialog(await adb.ui_dump(serial))
+        ok = moved.ok_button if moved else dialog.ok_button
         await _require_focus(adb, serial)
-        await adb.tap(serial, *dialog.ok_button.center)
+        await adb.tap(serial, *ok.center)
         return "signed-in"
     focus = await adb.focused_window(serial)
     if focus and focus[0] == AFREERDP:
