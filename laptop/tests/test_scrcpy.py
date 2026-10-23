@@ -42,6 +42,7 @@ def test_argv_uses_preset_and_drop_folder() -> None:
         "--max-fps=60",
         "--window-title=T",
         "--push-target=/sdcard/Download/TabLink/",
+        "--screen-off-timeout=1800",
     ):
         assert flag in argv
 

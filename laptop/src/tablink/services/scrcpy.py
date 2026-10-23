@@ -59,7 +59,10 @@ def build_argv(
         f"--max-fps={preset.fps}",
         f"--window-title={title}",
         f"--push-target={drop_dir}",
-        "--stay-awake",
+        "--stay-awake",  # only while charging over USB
+        # On Wi-Fi too: the tablet must not lock while it is being used from the laptop.
+        # scrcpy restores the user's own timeout when the window closes.
+        "--screen-off-timeout=1800",
         "--disable-screensaver",
     ]
 

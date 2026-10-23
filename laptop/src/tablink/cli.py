@@ -203,6 +203,20 @@ def cmd_hotspot(args: argparse.Namespace) -> int:
     return 0 if reply.get("ok") else 1
 
 
+def cmd_path(args: argparse.Namespace) -> int:
+    if not args.force and not args.auto:
+        print("use --force MODE or --auto", file=sys.stderr)
+        return 2
+    mode = None if args.auto else args.force
+    try:
+        reply = asyncio.run(daemon.request({"cmd": "force_path", "mode": mode}, timeout=30.0))
+    except (OSError, TimeoutError, ValueError):
+        print("tablink: the TabLink service is not running", file=sys.stderr)
+        return 1
+    print(reply.get("message", reply))
+    return 0 if reply.get("ok") else 1
+
+
 def cmd_wake(args: argparse.Namespace) -> int:
     from tablink.adb import Adb, AdbError
 
@@ -265,6 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="test every link and print a fix for each failure")
     path = sub.add_parser("path", help="pin one link mode, for testing")
     path.add_argument("--force", choices=MODES, metavar="MODE", help=", ".join(MODES))
+    path.add_argument("--auto", action="store_true", help="go back to automatic link choice")
     sub.add_parser("daemon", help="run tablinkd in the foreground")
     b = sub.add_parser("bar", help=argparse.SUPPRESS)  # started by `connect`
     b.add_argument("--serial", required=True)
@@ -285,7 +300,7 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "hotspot": cmd_hotspot,
     "send": not_yet("T15"),
     "doctor": not_yet("T18"),
-    "path": not_yet("T5"),
+    "path": cmd_path,
 }
 
 

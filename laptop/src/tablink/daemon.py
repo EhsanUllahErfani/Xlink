@@ -335,7 +335,23 @@ def build() -> Daemon:
         await manager.check()
         return {"ok": True, "message": "Hotspot is off." if was_on else "Hotspot was not on."}
 
-    d.local_handlers = {"hotspot_on": hotspot_on, "hotspot_off": hotspot_off}
+    async def force_path(msg: dict[str, Any]) -> dict[str, Any]:
+        mode = msg.get("mode")
+        if mode is not None and mode not in {p.mode for p in manager.providers}:
+            return {"ok": False, "message": f"unknown mode: {mode}"}
+        manager.forced_mode = mode
+        path = await manager.check()
+        if mode is None:
+            return {"ok": True, "message": "Automatic link choice is back on."}
+        if path is None:
+            return {"ok": False, "message": f"Pinned to {mode}, but that link does not work now."}
+        return {"ok": True, "message": f"Pinned to {mode} ({path.rtt_ms:.0f} ms)."}
+
+    d.local_handlers = {
+        "hotspot_on": hotspot_on,
+        "hotspot_off": hotspot_off,
+        "force_path": force_path,
+    }
     holder["control"] = control
     return d
 
