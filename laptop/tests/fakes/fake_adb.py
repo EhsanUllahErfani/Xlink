@@ -42,6 +42,8 @@ class FakeAdb:
     )
     packages: dict[str, int] = field(default_factory=dict)
     refuse_install: bool = False
+    drawn: list[str] = field(default_factory=list)
+    unlock_on_draw: bool = True
     awake: bool = True
     locked: bool = False
     has_pin: bool = True  # dismissing the keyguard only shows the PIN pad
@@ -183,6 +185,10 @@ class FakeAdb:
         if rest[:2] == ["input", "text"]:
             self.typed.append(rest[2])
             return RunResult(0, "", "")
+        if rest[:3] == ["input", "keyevent", "KEYCODE_ENTER"] and self.typed:
+            if self.unlock_on_draw:
+                self.locked = False
+            return RunResult(0, "", "")
         if rest[:2] == ["input", "tap"]:
             self.taps.append((int(rest[2]), int(rest[3])))
             return RunResult(0, "", "")
@@ -190,6 +196,11 @@ class FakeAdb:
             return RunResult(0, "Starting: Intent { ... }\n", "")
         if rest[:2] == ["am", "force-stop"]:
             self.stopped.append(rest[2])
+            return RunResult(0, "", "")
+        if rest and rest[0].startswith("input motionevent DOWN"):
+            self.drawn.append(rest[0])
+            if self.unlock_on_draw:
+                self.locked = False
             return RunResult(0, "", "")
         if rest[:1] == ["run-as"]:
             name = rest[-1].rsplit("files/", 1)[-1].rstrip("'")

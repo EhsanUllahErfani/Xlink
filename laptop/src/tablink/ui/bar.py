@@ -83,9 +83,9 @@ class BarWindow(Adw.ApplicationWindow):
         buttons: list[tuple[str, str, str, Callable[[], Awaitable[None]]]] = [
             (
                 "system-lock-screen-symbolic",
-                "Wake",
-                "Wake the tablet and show its PIN pad",
-                app.wake,
+                "Unlock",
+                "Wake the tablet and unlock it with your pattern or PIN",
+                self.unlock,
             ),
             ("go-previous-symbolic", "Back", "Back (right-click)", app.back),
             ("go-home-symbolic", "Home", "Home (middle-click)", app.home),
@@ -125,6 +125,39 @@ class BarWindow(Adw.ApplicationWindow):
         paths = [Path(f.get_path()) for f in value.get_files() if f.get_path()]
         self.app.spawn(self.app.send(paths))
         return True
+
+    async def unlock(self) -> None:
+        from tablink.ui.unlock_pad import UnlockWindow
+
+        win: UnlockWindow | None = None
+
+        def finish(ok: bool, error: str = "") -> None:
+            if win is None:
+                return
+            if ok:
+                win.close()
+                self.toast("Tablet unlocked")
+            else:
+                win.say(error or "That didn't unlock it. Try again.")
+
+        def send_pattern(dots: list[int]) -> None:
+            if len(dots) < 4:
+                if win:
+                    win.say("Join at least 4 dots")
+                return
+            if win:
+                win.say("Unlocking…")
+            self.app.spawn(self.app.unlock(dots=dots, done=finish))
+
+        def send_pin(pin: str) -> None:
+            if win:
+                win.say("Unlocking…")
+            self.app.spawn(self.app.unlock(pin=pin, done=finish))
+
+        win = UnlockWindow(self, send_pattern, send_pin)
+        win.present()
+        # Wake it now so it is ready by the time the pattern is drawn.
+        self.app.spawn(self.app.prepare_unlock(win.say))
 
     async def pick(self) -> None:
         dialog = Gtk.FileDialog(title="Send files to the tablet", modal=True)
@@ -184,6 +217,43 @@ class BarApp(Adw.Application):
             self.toast("Type your PIN in the tablet window with the laptop keyboard", timeout=6)
         else:
             self.toast("Tablet is awake")
+
+    async def prepare_unlock(self, say: Callable[[str], None]) -> None:
+        from tablink.unlock import show_lock_screen
+
+        try:
+            screen = await show_lock_screen(self.adb, self.serial)
+        except AdbError as e:
+            say(f"Tablet did not respond: {e}")
+            return
+        if screen.kind == "none":
+            say("The tablet is already unlocked")
+        elif screen.kind == "pattern":
+            say("Draw your pattern with the mouse")
+        elif screen.kind in ("pin", "password"):
+            say("Type your PIN below and press Enter")
+
+    async def unlock(
+        self,
+        dots: list[int] | None = None,
+        pin: str | None = None,
+        done: Callable[[bool, str], None] | None = None,
+    ) -> None:
+        from tablink.unlock import UnlockError, unlock_with_pattern, unlock_with_pin
+
+        try:
+            if dots is not None:
+                ok = await unlock_with_pattern(self.adb, self.serial, dots)
+            else:
+                ok = await unlock_with_pin(self.adb, self.serial, pin or "")
+            error = ""
+        except (AdbError, UnlockError) as e:
+            ok, error = False, str(e)
+        finally:
+            dots = None
+            pin = None
+        if done:
+            done(ok, error)
 
     async def back(self) -> None:
         await self._key("KEYCODE_BACK")

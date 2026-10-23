@@ -303,6 +303,10 @@ class Adb:
             "shell", "run-as", package, "sh", "-c", f"'{script}'", serial=serial, input=data
         )
 
+    async def shell_secret(self, serial: str, script: str) -> None:
+        """Run a shell line that carries a secret (e.g. an unlock pattern): never logged."""
+        await self._run("shell", script, serial=serial, quiet_args=True)
+
     async def tap(self, serial: str, x: int, y: int) -> None:
         await self.shell(serial, "input", "tap", str(x), str(y))
 

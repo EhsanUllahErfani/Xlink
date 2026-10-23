@@ -74,3 +74,14 @@ async def test_wake_button_tells_user_to_type_pin() -> None:
     await app.wake()
     assert fake.awake
     assert "Type your PIN" in app.toasts[-1]
+
+
+def test_middle_dot_rule_matches_android() -> None:
+    from tablink.ui.unlock_pad import middle_dot
+
+    assert middle_dot(1, 3) == 2
+    assert middle_dot(1, 9) == 5
+    assert middle_dot(3, 7) == 5
+    assert middle_dot(1, 7) == 4
+    assert middle_dot(1, 6) is None  # knight move: no dot in between
+    assert middle_dot(1, 2) is None
