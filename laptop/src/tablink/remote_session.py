@@ -137,6 +137,20 @@ async def open_laptop(
     raise FocusLost("aFreeRDP did not come to the front")
 
 
+def bookmark_ref(bookmark_id: int) -> str:
+    """aFreeRDP's reference to a saved connection (ConnectionReference "MBMID/<id>")."""
+    return f"MBMID/{bookmark_id}"
+
+
+async def prepare_remote(adb: Adb, serial: str, rd: object | None = None) -> None:
+    """Make sure RDP is up and tunnelled over USB, so a saved aFreeRDP connection works."""
+    from tablink.services.remote_desktop import RDP_PORT, RemoteDesktop
+
+    remote = rd if isinstance(rd, RemoteDesktop) else RemoteDesktop()
+    await remote.setup()
+    await adb.reverse(serial, RDP_PORT, RDP_PORT)
+
+
 async def show_laptop_on_tablet(adb: Adb, serial: str, rd: object | None = None) -> str:
     """Make sure RDP is up, tunnel it over USB, and sign the tablet in. Returns a message."""
     from tablink.services.remote_desktop import RDP_PORT, RDP_USER, RemoteDesktop

@@ -5,7 +5,15 @@ package dev.tablink
  * requests carry only a message type, never secrets.
  */
 object Protocol {
-    data class Reply(val type: String, val ok: Boolean, val message: String)
+    private val CON_REF = Regex("MBMID/[0-9]{1,9}")
+
+    /** `conRef` is an aFreeRDP saved-connection reference ("MBMID/<id>") to open, if any. */
+    data class Reply(
+        val type: String,
+        val ok: Boolean,
+        val message: String,
+        val conRef: String = "",
+    )
 
     fun request(type: String): String {
         require(type.all { it.isLetterOrDigit() || it == '_' }) { "bad type: $type" }
@@ -16,7 +24,8 @@ object Protocol {
         val type = stringField(line, "type") ?: "error"
         val ok = Regex("\"ok\"\\s*:\\s*(true|false)").find(line)?.groupValues?.get(1) == "true"
         val message = stringField(line, "message") ?: ""
-        return Reply(type, ok || type == "hello", message)
+        val conRef = stringField(line, "conRef")?.takeIf { CON_REF.matches(it) } ?: ""
+        return Reply(type, ok || type == "hello", message, conRef)
     }
 
     private fun stringField(json: String, name: String): String? {

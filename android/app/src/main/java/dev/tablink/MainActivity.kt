@@ -1,5 +1,9 @@
 package dev.tablink
 
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,10 +47,28 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val Blue = Color(0xFF1E5AA8)
+
+private const val AFREERDP = "com.freerdp.afreerdp"
+private const val AFREERDP_SESSION = "com.freerdp.freerdpcore.presentation.SessionActivity"
+
+/** Open a saved aFreeRDP connection: it holds the login, so no password box appears. */
+private fun openSavedConnection(context: Context, conRef: String): Boolean =
+    try {
+        context.startActivity(
+            Intent()
+                .setComponent(ComponentName(AFREERDP, AFREERDP_SESSION))
+                .putExtra("conRef", conRef)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        true
+    } catch (e: ActivityNotFoundException) {
+        false
+    }
 
 /** One screen: connection status and the two one-tap actions. */
 class MainActivity : ComponentActivity() {
@@ -70,6 +92,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun TabLinkScreen(client: ControlClient) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var connected by remember { mutableStateOf<Boolean?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
@@ -89,7 +112,11 @@ private fun TabLinkScreen(client: ControlClient) {
             message = try {
                 val reply = client.send(type)
                 connected = true
-                reply.message.ifEmpty { if (reply.ok) "Done." else "That didn't work." }
+                if (reply.ok && reply.conRef.isNotEmpty() && !openSavedConnection(context, reply.conRef)) {
+                    "aFreeRDP is not installed on this tablet."
+                } else {
+                    reply.message.ifEmpty { if (reply.ok) "Done." else "That didn't work." }
+                }
             } catch (e: Exception) {
                 connected = false
                 "Can't reach the laptop. Plug in the USB cable and make sure TabLink is " +

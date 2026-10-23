@@ -185,7 +185,7 @@ def build() -> Daemon:
     from tablink import config as config_mod
     from tablink.adb import Adb
     from tablink.proc import Process, subprocess_spawner
-    from tablink.remote_session import show_laptop_on_tablet
+    from tablink.remote_session import bookmark_ref, prepare_remote, show_laptop_on_tablet
 
     cfg = config_mod.load()
     adb = Adb()
@@ -197,6 +197,16 @@ def build() -> Daemon:
         d = holder["d"]
         if d.serial is None:
             return {"type": "remote", "ok": False, "message": "Tablet is not connected by USB."}
+        bookmark = config_mod.load().remote.afreerdp_bookmark
+        if bookmark:
+            # The tablet app opens the saved connection itself: no login box, nothing typed.
+            await prepare_remote(adb, d.serial)
+            return {
+                "type": "remote",
+                "ok": True,
+                "message": "Opening the laptop…",
+                "conRef": bookmark_ref(bookmark),
+            }
         text = await show_laptop_on_tablet(adb, d.serial)
         return {
             "type": "remote",

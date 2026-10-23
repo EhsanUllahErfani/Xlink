@@ -112,3 +112,9 @@ async def test_ok_is_measured_again_after_keyboard_moves_dialog() -> None:
     adb = Adb(runner=fake, adb_path="adb")
     await open_laptop(adb, USB_SERIAL, "127.0.0.1", 3389, "tablink", PW, poll_s=0)
     assert fake.taps == [(795, 1308), (1305, 1148)]
+
+
+def test_bookmark_ref_matches_afreerdp_format() -> None:
+    from tablink.remote_session import bookmark_ref
+
+    assert bookmark_ref(1) == "MBMID/1"

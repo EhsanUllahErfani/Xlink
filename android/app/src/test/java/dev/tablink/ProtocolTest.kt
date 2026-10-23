@@ -43,4 +43,16 @@ class ProtocolTest {
     fun garbageIsAnError() {
         assertEquals("error", Protocol.parse("nonsense").type)
     }
+
+    @Test
+    fun readsSavedConnectionReference() {
+        val r = Protocol.parse("{\"type\": \"remote\", \"ok\": true, \"message\": \"x\", \"conRef\": \"MBMID/1\"}")
+        assertEquals("MBMID/1", r.conRef)
+    }
+
+    @Test
+    fun ignoresUnexpectedReferences() {
+        val r = Protocol.parse("{\"type\": \"remote\", \"ok\": true, \"conRef\": \"FILE//sdcard/evil.rdp\"}")
+        assertEquals("", r.conRef)
+    }
 }

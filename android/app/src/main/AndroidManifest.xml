@@ -3,6 +3,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Needed to open aFreeRDP's saved connection on Android 11+. -->
+    <queries>
+        <package android:name="com.freerdp.afreerdp" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
