@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from tablink import __version__
+from tablink.control.server import ControlServer
+from tablink.paths.usb import UsbPath
 
 log = logging.getLogger(__name__)
 
@@ -84,10 +86,23 @@ async def get_status(path: Path | None = None) -> DaemonStatus:
 
 
 class Daemon:
-    def __init__(self, sock: Path | None = None) -> None:
+    """tablinkd: local status socket, USB watcher, and the control channel for the tablet app."""
+
+    def __init__(
+        self,
+        sock: Path | None = None,
+        control: ControlServer | None = None,
+        usb: UsbPath | None = None,
+        poll_s: float = 5.0,
+    ) -> None:
         self.sock = sock or socket_path()
         self.status = DaemonStatus(running=True)
+        self.control = control
+        self.usb = usb
+        self.poll_s = poll_s
+        self.serial: str | None = None
         self._server: asyncio.Server | None = None
+        self._watch: asyncio.Task[None] | None = None
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -106,14 +121,50 @@ class Daemon:
         finally:
             writer.close()
 
+    async def check_usb(self) -> None:
+        """One health check: tunnel the ports when the tablet is plugged in."""
+        if self.usb is None:
+            return
+        path = await self.usb.probe()
+        if path is None:
+            if self.serial is not None:
+                log.info("tablet unplugged")
+                await self.usb.deactivate()
+            self.serial = None
+            self.status.mode, self.status.rtt_ms = None, None
+            return
+        if path.adb_serial != self.serial:
+            await self.usb.activate(path)
+            self.serial = path.adb_serial
+            log.info("tablet connected by USB")
+        self.status.mode, self.status.rtt_ms = path.mode, path.rtt_ms
+
+    async def _watch_usb(self) -> None:
+        while True:
+            try:
+                await self.check_usb()
+            except Exception:  # a flaky adb must never kill the daemon
+                log.exception("USB health check failed")
+            await asyncio.sleep(self.poll_s)
+
     async def start(self) -> None:
         self.sock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.sock.unlink(missing_ok=True)
         self._server = await asyncio.start_unix_server(self._handle, path=str(self.sock))
         os.chmod(self.sock, 0o600)
+        if self.control is not None:
+            await self.control.start()
+        if self.usb is not None:
+            self._watch = asyncio.create_task(self._watch_usb())
         log.info("tablinkd %s listening on %s", __version__, self.sock)
 
     async def stop(self) -> None:
+        if self._watch is not None:
+            self._watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._watch
+        if self.control is not None:
+            await self.control.stop()
         if self._server:
             self._server.close()
             await self._server.wait_closed()
@@ -127,7 +178,46 @@ class Daemon:
             await self.stop()
 
 
+def build() -> Daemon:
+    """The real daemon, wired to adb, the screen launcher and GNOME Remote Desktop."""
+    import sys
+
+    from tablink import config as config_mod
+    from tablink.adb import Adb
+    from tablink.proc import Process, subprocess_spawner
+    from tablink.remote_session import show_laptop_on_tablet
+
+    cfg = config_mod.load()
+    adb = Adb()
+    usb = UsbPath(adb, cfg.network.control_port, serial_hint=cfg.device.tablet_serial)
+    holder: dict[str, Daemon] = {}
+    screens: list[Process] = []
+
+    async def remote(msg: dict[str, Any]) -> dict[str, Any]:
+        d = holder["d"]
+        if d.serial is None:
+            return {"type": "remote", "ok": False, "message": "Tablet is not connected by USB."}
+        text = await show_laptop_on_tablet(adb, d.serial)
+        return {
+            "type": "remote",
+            "ok": text.startswith(("The laptop", "aFreeRDP")),
+            "message": text,
+        }
+
+    async def screen(msg: dict[str, Any]) -> dict[str, Any]:
+        screens[:] = [p for p in screens if p.returncode is None]
+        if screens:
+            return {"type": "screen", "ok": True, "message": "The tablet window is already open."}
+        screens.append(await subprocess_spawner([sys.executable, "-m", "tablink.cli", "connect"]))
+        return {"type": "screen", "ok": True, "message": "Opening the tablet on the laptop."}
+
+    control = ControlServer(cfg.network.control_port, {"remote_ready": remote, "screen": screen})
+    d = Daemon(control=control, usb=usb)
+    holder["d"] = d
+    return d
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(Daemon().run_forever())
+        asyncio.run(build().run_forever())
