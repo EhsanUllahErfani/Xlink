@@ -12,6 +12,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import gi
 
@@ -109,6 +110,8 @@ class BarWindow(Adw.ApplicationWindow):
             btn.connect("clicked", lambda _b, a=action: app.spawn(a()))
             row.append(btn)
 
+        self.pad: Any = None  # the open unlock pad, if any
+        self.pad_dismissed = False  # closed by the user while still locked
         self.toasts = Adw.ToastOverlay(child=row)
         view = Adw.ToolbarView(content=self.toasts)
         view.add_top_bar(header)
@@ -129,12 +132,16 @@ class BarWindow(Adw.ApplicationWindow):
     async def unlock(self) -> None:
         from tablink.ui.unlock_pad import UnlockWindow
 
+        if self.pad is not None:
+            self.pad.present()
+            return
         win: UnlockWindow | None = None
 
         def finish(ok: bool, error: str = "") -> None:
             if win is None:
                 return
             if ok:
+                self.pad = None  # not a dismissal
                 win.close()
                 self.toast("Tablet unlocked")
             else:
@@ -155,6 +162,15 @@ class BarWindow(Adw.ApplicationWindow):
             self.app.spawn(self.app.unlock(pin=pin, done=finish))
 
         win = UnlockWindow(self, send_pattern, send_pin)
+        self.pad = win
+
+        def closed(w: UnlockWindow) -> bool:
+            if self.pad is w:  # closed by the user (the watcher clears self.pad first)
+                self.pad_dismissed = True  # cleared by the watcher once the tablet unlocks
+            self.pad = None
+            return False
+
+        win.connect("close-request", closed)
         win.present()
         # Wake it now so it is ready by the time the pattern is drawn.
         self.app.spawn(self.app.prepare_unlock(win.say))
@@ -190,7 +206,32 @@ class BarApp(Adw.Application):
     def _on_activate(self, _app: Adw.Application) -> None:
         if self.win is None:
             self.win = BarWindow(self)
+            self.spawn(self.watch_lock())
         self.win.present()
+
+    async def watch_lock(self, interval_s: float = 2.0) -> None:
+        """Open the unlock pad by itself when the tablet is awake but locked.
+
+        Android blanks the pattern/PIN screen in every screen mirror, so the tablet window
+        cannot show the dots; the pad brings them to the laptop instead.
+        """
+        while True:
+            await asyncio.sleep(interval_s)
+            win = self.win
+            if win is None:
+                continue
+            try:
+                awake, locked = await self.adb.screen_state(self.serial)
+            except AdbError:
+                continue
+            if awake and locked:
+                if win.pad is None and not win.pad_dismissed:
+                    await win.unlock()
+            else:
+                win.pad_dismissed = False
+                if win.pad is not None:
+                    pad, win.pad = win.pad, None
+                    pad.close()
 
     def spawn(self, coro: Awaitable[None]) -> None:
         task: asyncio.Task[None] = asyncio.ensure_future(coro)

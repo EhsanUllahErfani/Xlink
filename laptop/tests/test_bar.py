@@ -85,3 +85,59 @@ def test_middle_dot_rule_matches_android() -> None:
     assert middle_dot(1, 7) == 4
     assert middle_dot(1, 6) is None  # knight move: no dot in between
     assert middle_dot(1, 2) is None
+
+
+class FakePad:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeWin:
+    def __init__(self) -> None:
+        self.pad: FakePad | None = None
+        self.pad_dismissed = False
+        self.opened = 0
+
+    async def unlock(self) -> None:
+        self.opened += 1
+        self.pad = FakePad()
+
+
+async def run_watch(app: "App", rounds: int) -> None:
+    import asyncio
+
+    task = asyncio.create_task(app.watch_lock(interval_s=0))
+    for _ in range(rounds):
+        await asyncio.sleep(0)
+    task.cancel()
+
+
+async def test_pad_opens_by_itself_when_locked_and_closes_when_unlocked() -> None:
+    fake = FakeAdb(awake=True, locked=True)
+    app = App(fake)
+    win = FakeWin()
+    app.win = win
+    await run_watch(app, 20)
+    assert win.opened == 1 and win.pad is not None  # opened once, not again and again
+    pad = win.pad
+    fake.locked = False
+    await run_watch(app, 20)
+    assert win.pad is None and pad.closed
+
+
+async def test_pad_closed_by_user_stays_closed_until_next_lock() -> None:
+    fake = FakeAdb(awake=True, locked=True)
+    app = App(fake)
+    win = FakeWin()
+    win.pad_dismissed = True  # the user closed it
+    app.win = win
+    await run_watch(app, 20)
+    assert win.opened == 0
+    fake.locked = False
+    await run_watch(app, 20)
+    fake.locked = True
+    await run_watch(app, 20)
+    assert win.opened == 1  # next lock: opens again
