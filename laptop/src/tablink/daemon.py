@@ -425,14 +425,34 @@ def build() -> Daemon:
         if action == "on":
             current.tailscale.enabled = True
             config_mod.save(current)
-        st = await tailnet.status() if current.tailscale.enabled else None
-        if st is None:
+        if not current.tailscale.enabled:
             return {"ok": True, "message": "Internet access is off (tablink internet on)."}
+        # Right after start the node passes through NoState/Starting/NeedsLogin while it loads
+        # its saved keys: wait for it to settle before deciding anything.
+        st = await tailnet.status()
+        for _ in range(30):
+            if st.running or (st.state == "NeedsLogin" and st.auth_url):
+                break
+            await asyncio.sleep(0.5)
+            st = await tailnet.status()
         if st.running:
             ip = st.self_ips[0] if st.self_ips else "?"
             tab = find_tablet(st, current.device.tablet_name)
             where = f"tablet at {tab.ips[0]}" if tab else "tablet not signed in yet"
-            return {"ok": True, "message": f"Internet access is on ({ip}); {where}."}
+            # Only TabLink's own devices by name; other people's devices on a shared tailnet
+            # are just counted.
+            ours = [p for p in st.peers if p.hostname.startswith("tablink-")]
+            peers = [f"{p.hostname} ({'online' if p.online else 'offline'})" for p in ours]
+            others = len(st.peers) - len(ours)
+            if others:
+                peers.append(f"{others} other device(s) on this tailnet (cannot reach the tablet)")
+            return {
+                "ok": True,
+                "message": f"Internet access is on ({ip}); {where}.",
+                "peers": peers,
+            }
+        if action != "on":  # a status check never starts a sign-in
+            return {"ok": False, "message": f"Internet access is not signed in ({st.state})."}
         url = st.auth_url or await tailnet.login()
         return {
             "ok": True,

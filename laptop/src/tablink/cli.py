@@ -260,6 +260,8 @@ def cmd_internet(args: argparse.Namespace) -> int:
         print("tablink: the TabLink service is not running", file=sys.stderr)
         return 1
     print(reply.get("message", reply))
+    for peer in reply.get("peers") or []:
+        print(f"  · {peer}")
     if url := reply.get("url"):
         from tablink.notify import open_link
 
