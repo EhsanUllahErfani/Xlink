@@ -14,7 +14,13 @@ from collections.abc import Awaitable, Callable
 
 from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError
 from tablink.paths.base import PRIORITY, Mode, Path
-from tablink.paths.netinfo import default_gateways, local_addr_towards, neighbours
+from tablink.paths.netinfo import (
+    default_gateways,
+    gateway_ifaces,
+    is_bluetooth_iface,
+    local_addr_towards,
+    neighbours,
+)
 from tablink.paths.tunnel import Tunnel
 from tablink.ports import CONTROL, usb_reverse_ports
 
@@ -23,11 +29,17 @@ log = logging.getLogger(__name__)
 CONNECT_TIMEOUT_S = 3.0
 
 
-def classify(tablet_addr: str, gateways: list[str], laptop_is_hotspot: bool) -> Mode:
+def classify(
+    tablet_addr: str,
+    gateways: list[str],
+    laptop_is_hotspot: bool,
+    gateway_iface: str = "",
+) -> Mode:
     if laptop_is_hotspot:
         return "laptop_hotspot"
     if tablet_addr in gateways:
-        return "tablet_hotspot"
+        # The tablet shares its network: over Bluetooth (PAN) or as a Wi-Fi hotspot.
+        return "bluetooth" if is_bluetooth_iface(gateway_iface) else "tablet_hotspot"
     return "lan"
 
 
@@ -53,6 +65,7 @@ class LanPath:
         discovered: Callable[[], list[str]] = lambda: [],
         reachable: Callable[[str, int], Awaitable[bool]] = tcp_reachable,
         gateways: Callable[[], list[str]] = default_gateways,
+        gateway_iface: Callable[[str], str] = lambda gw: gateway_ifaces().get(gw, ""),
         local_addr: Callable[[str], str | None] = local_addr_towards,
         control_port: int = CONTROL,
     ) -> None:
@@ -60,6 +73,7 @@ class LanPath:
         self.adb = adb
         self.reachable = reachable
         self.gateways = gateways
+        self.gateway_iface = gateway_iface
         self.local_addr = local_addr
         self.known_addrs = known_addrs
         self.hotspot_iface = hotspot_iface
@@ -96,13 +110,14 @@ class LanPath:
         laptop = self.local_addr(addr)
         if laptop is None:
             return None
+        mode = classify(addr, gateways, on_hotspot, self.gateway_iface(addr))
         return Path(
-            mode=classify(addr, gateways, on_hotspot),
+            mode=mode,
             tablet_addr=addr,
             laptop_addr=laptop,
             adb_serial=serial,
             rtt_ms=rtt,
-            video_ok=True,
+            video_ok=mode != "bluetooth",  # Bluetooth is too slow for screen control
         )
 
     async def activate(self, path: Path) -> None:

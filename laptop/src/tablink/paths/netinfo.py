@@ -6,6 +6,25 @@ import socket
 from pathlib import Path
 
 
+def gateway_ifaces(route_file: Path = Path("/proc/net/route")) -> dict[str, str]:
+    """Default gateway -> the network interface it is reached through."""
+    out: dict[str, str] = {}
+    try:
+        lines = route_file.read_text().splitlines()[1:]
+    except OSError:
+        return out
+    for line in lines:
+        f = line.split()
+        if len(f) >= 8 and f[1] == "00000000" and f[2] != "00000000":
+            out.setdefault(socket.inet_ntoa(int(f[2], 16).to_bytes(4, "little")), f[0])
+    return out
+
+
+def is_bluetooth_iface(iface: str) -> bool:
+    """Bluetooth PAN (tethering) interfaces are named bnep0, bnep1, ..."""
+    return iface.startswith("bnep")
+
+
 def default_gateways(route_file: Path = Path("/proc/net/route")) -> list[str]:
     """IPv4 default gateways, best (lowest metric) first."""
     gws: list[tuple[int, str]] = []

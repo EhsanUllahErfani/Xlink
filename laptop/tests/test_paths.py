@@ -230,3 +230,38 @@ async def test_lan_probe_uses_mdns_when_known_address_is_stale() -> None:
     )
     path = await lan.probe()
     assert path is not None and path.tablet_addr == "192.0.2.77"
+
+
+def test_classify_bluetooth_tethering() -> None:
+    assert classify("192.168.44.1", ["192.168.44.1"], False, "bnep0") == "bluetooth"
+    assert classify("192.168.44.1", ["192.168.44.1"], False, "wlo1") == "tablet_hotspot"
+
+
+async def test_bluetooth_link_disables_video() -> None:
+    fake = FakeAdb(usb_attached=False, tcpip_enabled=True)
+
+    async def reach(addr: str, port: int) -> bool:
+        return addr == "192.168.44.1"
+
+    lan = LanPath(
+        Adb(runner=fake, adb_path="adb"),
+        lambda: [],
+        reachable=reach,
+        gateways=lambda: ["192.168.44.1"],
+        gateway_iface=lambda gw: "bnep0",
+        local_addr=lambda a: "192.168.44.20",
+    )
+    path = await lan.probe()
+    assert path is not None and path.mode == "bluetooth"
+    assert not path.video_ok and path.preset is None
+
+
+def test_gateway_ifaces_from_proc_route(tmp_path: FsPath) -> None:
+    from tablink.paths.netinfo import gateway_ifaces
+
+    route = tmp_path / "route"
+    route.write_text(
+        "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+        "bnep0\t00000000\t012CA8C0\t0003\t0\t0\t750\t00000000\t0\t0\t0\n"
+    )
+    assert gateway_ifaces(route) == {"192.168.44.1": "bnep0"}
