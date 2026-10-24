@@ -10,7 +10,7 @@ Categories=Utility;
 Keywords=tablet;android;screen;mirror;scrcpy;redmi;wake;unlock;
 StartupNotify=false
 SingleMainWindow=true
-Actions=WakeTablet;LaptopOnTablet;
+Actions=WakeTablet;LaptopOnTablet;Setup;
 
 [Desktop Action WakeTablet]
 Name=Wake tablet
@@ -19,3 +19,7 @@ Exec=tablink wake
 [Desktop Action LaptopOnTablet]
 Name=Show laptop on tablet
 Exec=tablink remote
+
+[Desktop Action Setup]
+Name=Set up tablet
+Exec=tablink pair --gui

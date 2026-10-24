@@ -153,6 +153,10 @@ def cmd_remote(args: argparse.Namespace) -> int:
 
 
 def cmd_pair(args: argparse.Namespace) -> int:
+    if args.gui:
+        from tablink.ui import wizard
+
+        return wizard.run()
     from tablink.adb import Adb, AdbError
     from tablink.pairing import PairError, Pairing
     from tablink.services.remote_desktop import RemoteDesktopError
@@ -324,7 +328,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("connect", help="connect on the best path and open the tablet screen (default)")
     sub.add_parser("status", help="active link, delay and the state of each service")
-    sub.add_parser("pair", help="first-time setup over USB")
+    pair = sub.add_parser("pair", help="first-time setup over USB")
+    pair.add_argument("--gui", action="store_true", help="show the setup window")
     sub.add_parser("remote", help="show this laptop's desktop on the tablet")
     sub.add_parser("wake", help="wake the tablet and show its PIN pad")
     hs = sub.add_parser("hotspot", help="start or stop the laptop hotspot")
