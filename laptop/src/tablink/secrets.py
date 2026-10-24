@@ -14,6 +14,7 @@ LABELS = {
     "control-token": "TabLink pairing token",
     "hotspot-password": "TabLink hotspot password",
     "tailnet-state": "TabLink internet access keys",
+    "private-state": "TabLink private network keys",
 }
 
 

@@ -7,7 +7,7 @@ from tablink.paths.lan import LanPath, classify
 from tablink.paths.manager import PathManager
 from tablink.paths.netinfo import default_gateways
 from tablink.paths.usb import UsbPath
-from tests.fakes.fake_adb import USB_SERIAL, FakeAdb
+from tests.fakes.fake_adb import FakeAdb
 
 USB = Path("usb", "127.0.0.1", "127.0.0.1", "S", 2.0, True)
 LAN = Path("lan", "192.0.2.20", "192.0.2.5", "192.0.2.20:5555", 9.0, True)
@@ -175,22 +175,9 @@ async def test_usb_activate_prepares_wifi_once() -> None:
     assert path
     await usb.activate(path)
     assert fake.tcpip_enabled and learned == [["192.0.2.20"]]
-    assert fake.reverses[USB_SERIAL][47800] == 47800  # tunnel set after adbd restart
     n = len([c for c in fake.calls if "tcpip" in c])
     await usb.activate(path)
     assert len([c for c in fake.calls if "tcpip" in c]) == n  # not restarted again
-
-
-async def test_lan_activate_opens_tunnel_over_wifi_adb() -> None:
-    fake = FakeAdb(usb_attached=False, tcpip_enabled=True)
-    lan = make_lan(fake, ["192.0.2.20"], {"192.0.2.20"})
-    path = await lan.probe()
-    assert path
-    await lan.activate(path)
-    assert fake.reverses["192.0.2.20:5555"][47800] == 47800
-    assert fake.reverses["192.0.2.20:5555"][3389] == 3389
-    await lan.deactivate()
-    assert fake.reverses["192.0.2.20:5555"] == {}
 
 
 async def test_concurrent_checks_never_overlap() -> None:

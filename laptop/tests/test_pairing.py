@@ -31,6 +31,13 @@ def make(fake: FakeAdb, tmp_path: Path) -> tuple[Pairing, Log]:
 
     from tablink.secrets import MemoryStore
 
+    class FakeServer:
+        async def ensure_running(self) -> str:
+            return "http://192.0.2.5:47801"
+
+        async def join_key(self) -> str:
+            return "hskey-auth-test-0123456789"
+
     pairing_ = Pairing(
         Adb(runner=fake, adb_path="adb"),
         log,
@@ -39,6 +46,7 @@ def make(fake: FakeAdb, tmp_path: Path) -> tuple[Pairing, Log]:
         token_store=MemoryStore(),
         extensions_dir=tmp_path / "ext",
         enable_extension=lambda uuid: True,
+        server=FakeServer(),  # type: ignore[arg-type]
     )
     return pairing_, log
 
@@ -103,6 +111,11 @@ async def test_full_run_hands_password_to_tablink_via_stdin(
     token = fake.app_files["dev.tablink/control-token.pending"].decode()
     assert len(token) == 64 and p.token_store.get() == token  # type: ignore[attr-defined]
     assert (tmp_path / "ext" / "tablink@dev.tablink" / "extension.js").exists()
+    import json
+
+    net = json.loads(fake.app_files["dev.tablink/private-network.pending"])
+    assert net == {"server_url": "http://192.0.2.5:47801", "join_key": "hskey-auth-test-0123456789"}
+    assert all("hskey" not in " ".join(c) for c in fake.calls)  # join key never on a command line
     assert all(pw not in " ".join(c) for c in fake.calls)  # never on a command line
     assert pw not in caplog.text and all(pw not in t for _, t in log.lines)
 
@@ -116,3 +129,22 @@ async def test_fetch_rejects_bad_checksum(tmp_path: Path, monkeypatch: pytest.Mo
     with pytest.raises(PairError, match="checksum"):
         await fetch_verified(apk, tmp_path)
     assert not (tmp_path / apk.file).exists()
+
+
+async def test_server_reuses_the_running_instance(tmp_path: Path) -> None:
+    from tablink.proc import RunResult
+    from tablink.server import TabLinkServer
+
+    calls: list[list[str]] = []
+
+    async def runner(argv: object, timeout: float, input: bytes | None = None) -> RunResult:
+        calls.append(list(argv))  # type: ignore[call-overload]
+        return RunResult(0, "[]", "")
+
+    sock = tmp_path / "hs.sock"
+    sock.write_text("")
+    srv = TabLinkServer(runner=runner, folder=tmp_path, sock=sock, binary="hs",
+                        address=lambda: "192.0.2.5")  # fmt: skip
+    srv._write_config("192.0.2.5")
+    assert await srv.ensure_running() == "http://192.0.2.5:47801"
+    assert all("serve" not in c for c in calls)  # no second server started

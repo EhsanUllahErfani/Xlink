@@ -32,7 +32,7 @@ async def test_one_click_opens_tablet_and_remembers_it() -> None:
     assert bars.last.terminated  # bar closed with the window
     assert f"--serial={USB_SERIAL}" in sp.last.argv
     assert config.load().device.tablet_serial == USB_SERIAL
-    assert fake.reverses[USB_SERIAL] == {}  # tunnel removed when the window closed
+    assert fake.reverses.get(USB_SERIAL, {}) == {}  # no adb tunnel in the new design
 
 
 @pytest.mark.parametrize(

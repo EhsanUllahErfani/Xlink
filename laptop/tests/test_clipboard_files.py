@@ -102,3 +102,13 @@ async def test_receiver_announces_saved_file(tmp_path: Path) -> None:
     reader.feed_eof()
     assert await r.receive("note.txt", 5, reader) == "note.txt"
     assert seen == ["note.txt"]
+
+
+def test_every_keyring_kind_the_daemon_uses_is_registered() -> None:
+    import re
+    from pathlib import Path as P
+
+    from tablink.secrets import LABELS
+
+    used = set(re.findall(r'KeyringStore\("([a-z-]+)"\)', P("src/tablink/daemon.py").read_text()))
+    assert used and used <= set(LABELS), used - set(LABELS)

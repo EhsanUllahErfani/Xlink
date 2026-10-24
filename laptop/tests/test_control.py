@@ -106,7 +106,6 @@ async def test_daemon_follows_usb_plug_and_unplug() -> None:
     await mgr.check()
     d.refresh_status()
     assert d.status.mode == "usb" and d.status.serial == USB_SERIAL
-    assert fake.reverses[USB_SERIAL][47800] == 47800
     fake.usb_attached = False
     await mgr.check()
     d.refresh_status()

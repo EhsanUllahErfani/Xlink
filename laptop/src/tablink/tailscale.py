@@ -34,6 +34,7 @@ class Peer:
     os: str
     ips: tuple[str, ...]
     online: bool
+    direct: str = ""  # direct endpoint ("" = relayed)
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,7 @@ def parse_status(msg: dict[str, Any]) -> TailnetStatus:
             os=str(p.get("os", "")),
             ips=tuple(p.get("ips") or ()),
             online=bool(p.get("online")),
+            direct=str(p.get("direct") or ""),
         )
         for p in (msg.get("peers") or [])
     )
@@ -158,8 +160,14 @@ class Tailscale:
         store: Store,
         launch: Callable[[], Awaitable[Channel]] = launch_helper,
         hostname: str | None = None,
+        control_url: Callable[[], Awaitable[str]] | None = None,
+        join_key: Callable[[], Awaitable[str]] | None = None,
+        work: Path | None = None,
     ) -> None:
         self.store = store
+        self.control_url = control_url  # None = Tailscale's own service
+        self.join_key = join_key  # used only on the very first start (no saved state)
+        self.work = work
         self.launch = launch
         self.hostname = hostname or "tablink-" + socket.gethostname().split(".")[0].lower()[:40]
         self._chan: Channel | None = None
@@ -182,10 +190,19 @@ class Tailscale:
         if self._chan is not None:
             return
         self._state = await asyncio.to_thread(self._load_state)
+        control = await self.control_url() if self.control_url else ""
+        key = await self.join_key() if (self.join_key and not self._state) else ""
         chan = await self.launch()
-        work = work_dir()
+        work = self.work or work_dir()
         work.mkdir(parents=True, exist_ok=True, mode=0o700)
-        init = {"cmd": "init", "state": self._state, "dir": str(work), "hostname": self.hostname}
+        init = {
+            "cmd": "init",
+            "state": self._state,
+            "dir": str(work),
+            "hostname": self.hostname,
+            "control_url": control,
+            "auth_key": key,  # secret: goes only to the helper's stdin
+        }
         await chan.write_line(json.dumps(init))
         self._chan = chan
         self._reader = asyncio.create_task(self._read())
@@ -245,6 +262,11 @@ class Tailscale:
     async def logout(self) -> None:
         await self._request({"cmd": "logout"})
         await asyncio.to_thread(self.store.set, "{}")
+
+    async def serve(self, port: int) -> bool:
+        """Make this laptop's 127.0.0.1:port reachable from the owner's own devices."""
+        reply = await self._request({"cmd": "serve", "port": port})
+        return bool(reply.get("ok"))
 
     async def forward(self, listen: str, to: str) -> bool:
         reply = await self._request({"cmd": "forward", "listen": listen, "to": to})

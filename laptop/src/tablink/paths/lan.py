@@ -21,8 +21,7 @@ from tablink.paths.netinfo import (
     local_addr_towards,
     neighbours,
 )
-from tablink.paths.tunnel import Tunnel
-from tablink.ports import CONTROL, usb_reverse_ports
+from tablink.ports import CONTROL
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +68,6 @@ class LanPath:
         local_addr: Callable[[str], str | None] = local_addr_towards,
         control_port: int = CONTROL,
     ) -> None:
-        self.tunnel = Tunnel(adb, usb_reverse_ports(control_port))
         self.adb = adb
         self.reachable = reachable
         self.gateways = gateways
@@ -122,7 +120,6 @@ class LanPath:
 
     async def activate(self, path: Path) -> None:
         assert path.adb_serial
-        await self.tunnel.open(path.adb_serial)
 
     async def deactivate(self) -> None:
-        await self.tunnel.close()
+        return None

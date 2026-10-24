@@ -142,7 +142,14 @@ private fun TabLinkScreen(client: ControlClient) {
                 val h = client.hello()
                 connected = h != null
                 mode = h?.mode ?: ""
-                if (h != null) WakeLaptop.remember(context, h)
+                if (h != null) {
+                    WakeLaptop.remember(context, h)
+                    if (h.serverUrl.isNotEmpty()) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            Tailnet.updateServerUrl(context, h.serverUrl)
+                        }
+                    }
+                }
             }
             delay(3_000)
         }
@@ -340,18 +347,31 @@ private fun openAutostart(context: Context) {
 private fun InternetAccess() {
     val context = LocalContext.current
     var status by remember { mutableStateOf(Tailnet.Status("Off", "", "")) }
+    var private by remember { mutableStateOf(Tailnet.Status("Off", "", "")) }
     LaunchedEffect(Unit) {
         while (true) {
-            status = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                Tailnet.status()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                status = Tailnet.status()
+                private = Tailnet.privateStatus()
             }
             delay(3_000)
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
+        val (color, text) = when (private.state) {
+            "Running" -> Color(0xFF2E9D4E) to "Private network on · ${private.ip} · end-to-end encrypted"
+            "Off" -> Color.Gray to "Private network: not set up (run tablink pair on the laptop)"
+            "Error" -> Color(0xFFC0392B) to "Private network unavailable: ${private.ip}"
+            else -> Color.Gray to "Private network: ${private.state.lowercase()}…"
+        }
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.size(8.dp))
+        Text(text, fontSize = 15.sp)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
         val (color, text) = when (status.state) {
-            "Running" -> Color(0xFF2E9D4E) to "Internet access on · ${status.ip}"
-            "NeedsLogin", "NeedsMachineAuth" -> Color(0xFFE0A800) to "Internet access: sign in once"
+            "Running" -> Color(0xFF2E9D4E) to "Campus / far-away fallback on (Tailscale)"
+            "NeedsLogin", "NeedsMachineAuth" -> Color(0xFFE0A800) to "Far-away fallback: sign in to Tailscale (optional)"
             "Off" -> Color.Gray to "Internet access starting…"
             "Error" -> Color(0xFFC0392B) to "Internet access unavailable: ${status.ip}"
             else -> Color.Gray to "Internet access: ${status.state.lowercase()}…"

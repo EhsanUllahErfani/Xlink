@@ -34,6 +34,7 @@ BAR_EXIT_DISCONNECT = 10  # tablink.ui.bar.EXIT_DISCONNECT, without importing GT
 
 MODE_TEXT = {
     "usb": "USB cable",
+    "private": "private network",
     "lan": "Wi-Fi",
     "laptop_hotspot": "laptop hotspot",
     "tablet_hotspot": "tablet hotspot",

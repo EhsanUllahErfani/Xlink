@@ -204,6 +204,42 @@ class Daemon:
             await self.stop()
 
 
+class _Networks:
+    """Keeps TabLink's server up (and current for this network) and makes the laptop's
+    TabLink channel and remote desktop reachable on its encrypted networks."""
+
+    def __init__(self, server: Any, private: Any, tailnet: Any, control_port: int) -> None:
+        self.server, self.private, self.tailnet = server, private, tailnet
+        self.ports = (control_port, 3389)
+        self._task: asyncio.Task[None] | None = None
+
+    async def _loop(self) -> None:
+        from tablink import config as config_mod
+
+        while True:
+            try:
+                await self.server.ensure_running()  # restarts when the Wi-Fi changes
+                if (await self.private.status()).running:
+                    for port in self.ports:
+                        await self.private.serve(port)
+                if config_mod.load().tailscale.enabled and (await self.tailnet.status()).running:
+                    for port in self.ports:
+                        await self.tailnet.serve(port)
+            except Exception as e:
+                log.warning("encrypted network: %s", type(e).__name__)
+            await asyncio.sleep(30)
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self) -> None:
+        if self._task:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+        await self.server.stop()
+
+
 class _StopOnly:
     """Background entry for parts that start on first use and only need stopping."""
 
@@ -231,13 +267,14 @@ def build() -> Daemon:
     from tablink.remote_session import prepare_remote
     from tablink.screen import ScreenSession
     from tablink.secrets import KeyringStore, control_token, get_or_create
+    from tablink.server import SERVER_PORT, TabLinkServer
     from tablink.services.clipboard import ClipboardSync, ShellBridge
     from tablink.services.files import FileReceiver
     from tablink.services.folder_sync import AdbRemote, FolderSync
     from tablink.services.scrcpy import ScrcpyService
     from tablink.services.terminal import Terminal
     from tablink.services.wake import wake_info, wake_screen
-    from tablink.tailscale import Tailscale, find_tablet
+    from tablink.tailscale import Tailscale, find_tablet, work_dir
 
     cfg = config_mod.load()
     adb = Adb()
@@ -276,6 +313,28 @@ def build() -> Daemon:
     )
     scrcpy = ScrcpyService(adb, cfg.video, title=f"{cfg.device.tablet_name} · TabLink")
     screen = ScreenSession(scrcpy, subprocess_spawner, cfg, desktop_notify)
+    server = TabLinkServer()
+
+    async def own_server_url() -> str:
+        await server.ensure_running()
+        return f"http://127.0.0.1:{SERVER_PORT}"  # the laptop reaches its own server locally
+
+    private = Tailscale(
+        KeyringStore("private-state"),
+        hostname="tablink-laptop",
+        control_url=own_server_url,
+        join_key=server.join_key,
+        work=work_dir().parent / "private",
+    )
+    priv_path = TailscalePath(
+        adb,
+        private,
+        enabled=lambda: True,
+        name_hint=lambda: config_mod.load().device.tablet_name,
+        control_port=cfg.network.control_port,
+        mode="private",
+        local_port=15556,
+    )
     tailnet = Tailscale(KeyringStore("tailnet-state"))
     ts_path = TailscalePath(
         adb,
@@ -284,7 +343,7 @@ def build() -> Daemon:
         name_hint=lambda: config_mod.load().device.tablet_name,
         control_port=cfg.network.control_port,
     )
-    manager = PathManager([usb, lan, ts_path], [screen])
+    manager = PathManager([usb, priv_path, lan, ts_path], [screen])
     holder: dict[str, Any] = {}
 
     async def remote(msg: dict[str, Any]) -> dict[str, Any]:
@@ -335,6 +394,7 @@ def build() -> Daemon:
         # The wake details let the tablet send a magic packet later, when the laptop sleeps.
         return {
             "mode": path.mode if path else None,
+            "server_url": server.url,  # the tablet follows the laptop's server when Wi-Fi changes
             **{f"wake_{k}": v for k, v in wake_info().items()},
         }
 
@@ -369,7 +429,14 @@ def build() -> Daemon:
         control=control,
         manager=manager,
         screen=screen,
-        background=[clipboard, mdns, folder, _StopOnly(tailnet)],
+        background=[
+            clipboard,
+            mdns,
+            folder,
+            _Networks(server, private, tailnet, cfg.network.control_port),
+            _StopOnly(tailnet),
+            _StopOnly(private),
+        ],
     )
     d.folder = folder
     holder["d"] = d

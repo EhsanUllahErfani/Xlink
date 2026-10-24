@@ -21,13 +21,15 @@ from pathlib import Path
 from tablink import config as config_mod
 from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError, Device
 from tablink.secrets import Store
+from tablink.server import TabLinkServer
 
 log = logging.getLogger(__name__)
 
 FDROID = "https://f-droid.org/repo/"
 TABLINK_PACKAGE = "dev.tablink"
 PENDING_PASSWORD_FILE = "rdp-password.pending"  # LaptopConnection.PENDING_FILE in the app
-PENDING_TOKEN_FILE = "control-token.pending"  # Pairing.PENDING_TOKEN_FILE in the app
+PENDING_TOKEN_FILE = "control-token.pending"  # Secrets.PENDING_TOKEN_FILE in the app
+PENDING_PRIVATE_FILE = "private-network.pending"  # Tailnet.PENDING_PRIVATE_FILE in the app
 EXTENSION_UUID = "tablink@dev.tablink"
 
 
@@ -145,7 +147,9 @@ class Pairing:
         token_store: Store | None = None,
         extensions_dir: Path | None = None,
         enable_extension: Callable[[str], bool] | None = None,
+        server: TabLinkServer | None = None,
     ) -> None:
+        self.server = server
         self.token_store = token_store
         self.extensions_dir = extensions_dir or (
             Path.home() / ".local" / "share" / "gnome-shell" / "extensions"
@@ -276,6 +280,20 @@ class Pairing:
         await self.adb.shell(serial, "am", "start", "-n", f"{TABLINK_PACKAGE}/.MainActivity")
         self.progress("ok", "Paired (secret kept in your keyring and encrypted on the tablet)")
 
+    async def private_network(self, serial: str) -> None:
+        """Give the tablet the address of TabLink's own server and a one-time join key."""
+        import json
+
+        self.progress("run", "Adding the tablet to TabLink's private network")
+        server = self.server or TabLinkServer()
+        url = await server.ensure_running()
+        key = await server.join_key()
+        data = json.dumps({"server_url": url, "join_key": key}).encode()
+        await self.adb.write_app_file(serial, TABLINK_PACKAGE, PENDING_PRIVATE_FILE, data)
+        self.progress(
+            "ok", "Private network ready (only your laptop and tablet, end-to-end encrypted)"
+        )
+
     def clipboard_extension(self) -> None:
         """Install the small GNOME Shell extension that lets TabLink share the clipboard."""
         import shutil
@@ -311,7 +329,8 @@ class Pairing:
         await self.install_apps(dev.serial)
         password = await self.remote_desktop()
         await self.give_password_to_tablink(dev.serial, password)
-        await self.pair_token(dev.serial)
+        await self.private_network(dev.serial)
+        await self.pair_token(dev.serial)  # last: restarts TabLink so it takes everything in
         self.clipboard_extension()
         await self.wifi(dev.serial)
         self.progress("ok", "All set. Tap TabLink on the tablet, or click TabLink on the laptop.")

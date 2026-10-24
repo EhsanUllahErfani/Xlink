@@ -40,7 +40,7 @@ async def test_internet_path_relays_adb_through_the_helper() -> None:
     assert p.adb_serial == f"127.0.0.1:{LOCAL_ADB_PORT}" and p.preset == "low"
     assert helper.forwards == {f"127.0.0.1:{LOCAL_ADB_PORT}": "100.64.0.7:5555"}
     await path.activate(p)
-    assert fake.reverses[p.adb_serial][47800] == 47800
+    assert fake.reverses.get(p.adb_serial, {}) == {}  # no adb tunnel: the app routes itself
     await path.tailscale.stop()
 
 

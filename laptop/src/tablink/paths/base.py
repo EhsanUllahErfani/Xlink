@@ -5,21 +5,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-Mode = Literal["usb", "lan", "laptop_hotspot", "tablet_hotspot", "tailscale", "bluetooth"]
+Mode = Literal[
+    "usb", "private", "lan", "laptop_hotspot", "tablet_hotspot", "tailscale", "bluetooth"
+]
 
-# Lower = preferred. usb > lan/hotspots > tailscale > bluetooth.
+# Lower = preferred. "private" is TabLink's own encrypted network (laptop server), used on any
+# Wi-Fi and from far away; Tailscale is its fallback. Plain adb over Wi-Fi (lan/hotspots) is not
+# end-to-end encrypted, so it is only a last resort.
 PRIORITY: dict[str, int] = {
     "usb": 0,
-    "lan": 10,
-    "laptop_hotspot": 11,
-    "tablet_hotspot": 12,
+    "private": 5,
     "tailscale": 20,
+    "lan": 25,
+    "laptop_hotspot": 26,
+    "tablet_hotspot": 27,
     "bluetooth": 30,
 }
 
 # Video preset per mode (docs/SPEC.md, "Switching paths"). None = no video on this path.
 PRESET_FOR_MODE: dict[str, str | None] = {
     "usb": "high",
+    "private": "high",
     "lan": "high",
     "laptop_hotspot": "balanced",
     "tablet_hotspot": "balanced",

@@ -1,4 +1,5 @@
-"""Mode 1: USB cable. Every laptop service is tunnelled to the tablet's 127.0.0.1."""
+"""Mode 1: USB cable (optional): adb for the tablet window. The tablet app reaches the laptop
+through its own encrypted network node, not through the cable."""
 
 from __future__ import annotations
 
@@ -8,7 +9,6 @@ from collections.abc import Callable
 
 from tablink.adb import LEGACY_TCP_PORT, Adb, AdbError
 from tablink.paths.base import PRIORITY, Path
-from tablink.paths.tunnel import Tunnel
 from tablink.ports import PortMap, usb_reverse_ports
 
 log = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ class UsbPath:
         self.prepare_wifi = prepare_wifi
         self.on_wifi_addrs = on_wifi_addrs
         self.ports: list[PortMap] = usb_reverse_ports(control_port)
-        self.tunnel = Tunnel(adb, self.ports)
         self.serial_hint = serial_hint  # the paired tablet's serial, preferred when set
 
     async def probe(self) -> Path | None:
@@ -77,7 +76,6 @@ class UsbPath:
         assert path.adb_serial
         if self.prepare_wifi:
             await self._prepare_wifi(path.adb_serial)
-        await self.tunnel.open(path.adb_serial)
 
     async def deactivate(self) -> None:
-        await self.tunnel.close()
+        return None

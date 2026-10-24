@@ -56,18 +56,26 @@ func init() {
 	_ = os.Setenv("TS_NO_LOGS_NO_SUPPORT", "true")
 }
 
-// NewNode prepares a node; dir is private app storage for Tailscale's working files.
+// NewNode prepares a node on Tailscale's network; dir is private app storage for its files.
 func NewNode(dir, hostname string, store Store) *Node {
+	return NewNodeAt(dir, hostname, store, "", "")
+}
+
+// NewNodeAt prepares a node on a given control server (TabLink's own server on the laptop)
+// with a one-time join key (only needed the first time; "" afterwards).
+func NewNodeAt(dir, hostname string, store Store, controlURL, authKey string) *Node {
 	// Android apps have no $HOME/cache dir; without this Tailscale's log setup panics
 	// ("no safe place found to store log state"). Uploads stay off (TS_NO_LOGS_NO_SUPPORT).
 	_ = os.Setenv("TS_LOGS_DIR", dir)
 	return &Node{
 		srv: &tsnet.Server{
-			Dir:      dir,
-			Hostname: hostname,
-			Store:    stateStore{store},
-			Logf:     discard,
-			UserLogf: discard,
+			Dir:        dir,
+			Hostname:   hostname,
+			Store:      stateStore{store},
+			Logf:       discard,
+			UserLogf:   discard,
+			ControlURL: controlURL,
+			AuthKey:    authKey,
 		},
 		quit: make(chan struct{}),
 	}

@@ -33,3 +33,6 @@ android/app/libs/*.aar
 
 # Built tailnet helper (laptop/tailnet, go build)
 laptop/tailnet/tablink-tailnet
+
+# Built TabLink server (laptop/server, go install headscale)
+laptop/server/headscale

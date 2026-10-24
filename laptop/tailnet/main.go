@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -64,6 +65,7 @@ type peer struct {
 	OS     string   `json:"os"`
 	IPs    []string `json:"ips"`
 	Online bool     `json:"online"`
+	Direct string   `json:"direct"` // the peer's direct endpoint ("" when relayed)
 }
 
 func discard(string, ...any) {}
@@ -80,10 +82,12 @@ func main() {
 		return
 	}
 	var init struct {
-		Cmd   string            `json:"cmd"`
-		State map[string]string `json:"state"`
-		Dir   string            `json:"dir"`
-		Host  string            `json:"hostname"`
+		Cmd        string            `json:"cmd"`
+		State      map[string]string `json:"state"`
+		Dir        string            `json:"dir"`
+		Host       string            `json:"hostname"`
+		ControlURL string            `json:"control_url"` // "" = Tailscale's; else TabLink's own server
+		AuthKey    string            `json:"auth_key"`    // one-time join key for TabLink's own server
 	}
 	if err := json.Unmarshal(in.Bytes(), &init); err != nil || init.Cmd != "init" {
 		send(map[string]string{"type": "error", "message": "first line must be init"})
@@ -105,7 +109,10 @@ func main() {
 	if host == "" {
 		host = "tablink-laptop"
 	}
-	srv := &tsnet.Server{Dir: dir, Hostname: host, Store: st, Logf: discard, UserLogf: discard}
+	srv := &tsnet.Server{
+		Dir: dir, Hostname: host, Store: st, Logf: discard, UserLogf: discard,
+		ControlURL: init.ControlURL, AuthKey: init.AuthKey,
+	}
 	if err := srv.Start(); err != nil {
 		send(map[string]string{"type": "error", "message": err.Error()})
 		return
@@ -119,6 +126,7 @@ func main() {
 			Cmd    string `json:"cmd"`
 			Listen string `json:"listen"`
 			To     string `json:"to"`
+			Port   int    `json:"port"`
 		}
 		if json.Unmarshal(in.Bytes(), &req) != nil {
 			send(map[string]string{"type": "error", "message": "bad request"})
@@ -142,7 +150,7 @@ func main() {
 			out["ips"] = ips
 			var peers []peer
 			for _, p := range s.Peer {
-				pp := peer{Host: p.HostName, OS: p.OS, Online: p.Online}
+				pp := peer{Host: p.HostName, OS: p.OS, Online: p.Online, Direct: p.CurAddr}
 				for _, ip := range p.TailscaleIPs {
 					pp.IPs = append(pp.IPs, ip.String())
 				}
@@ -169,11 +177,69 @@ func main() {
 			forwards[req.Listen] = ln
 			go serve(srv, ln, req.To)
 			send(map[string]any{"type": "forward", "ok": true})
+		case "serve":
+			// Tailnet port -> this laptop's 127.0.0.1:port (control channel, remote desktop).
+			if _, ok := forwards[fmt.Sprintf("serve:%d", req.Port)]; ok {
+				send(map[string]any{"type": "serve", "ok": true})
+				break
+			}
+			ln, err := srv.Listen("tcp", fmt.Sprintf(":%d", req.Port))
+			if err != nil {
+				send(map[string]any{"type": "serve", "ok": false, "message": err.Error()})
+				break
+			}
+			forwards[fmt.Sprintf("serve:%d", req.Port)] = ln
+			go serveIn(srv, ln, fmt.Sprintf("127.0.0.1:%d", req.Port))
+			send(map[string]any{"type": "serve", "ok": true})
 		default:
 			send(map[string]string{"type": "error", "message": "unknown command"})
 		}
 		cancel()
 	}
+}
+
+// serveIn relays tailnet connections from the owner's own devices to a local port.
+func serveIn(srv *tsnet.Server, ln net.Listener, local string) {
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		if !sameUser(srv, c.RemoteAddr().String()) {
+			_ = c.Close() // other people's devices on a shared tailnet get nothing
+			continue
+		}
+		go func(in net.Conn) {
+			defer in.Close()
+			out, err := net.DialTimeout("tcp", local, 5*time.Second)
+			if err != nil {
+				return
+			}
+			defer out.Close()
+			done := make(chan struct{}, 2)
+			go func() { _, _ = io.Copy(out, in); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(in, out); done <- struct{}{} }()
+			<-done
+		}(c)
+	}
+}
+
+func sameUser(srv *tsnet.Server, addr string) bool {
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	who, err := lc.WhoIs(ctx, addr)
+	if err != nil || who == nil || who.UserProfile == nil {
+		return false
+	}
+	st, err := lc.StatusWithoutPeers(ctx)
+	if err != nil || st.Self == nil {
+		return false
+	}
+	return who.UserProfile.ID == st.Self.UserID
 }
 
 // serve relays local connections (adb on this laptop) to `to` over the tailnet.

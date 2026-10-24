@@ -12,10 +12,11 @@ from typing import TextIO
 
 from tablink import __version__, config, daemon
 
-MODES = ("usb", "lan", "laptop_hotspot", "tablet_hotspot", "tailscale", "bluetooth")
+MODES = ("usb", "private", "lan", "laptop_hotspot", "tablet_hotspot", "tailscale", "bluetooth")
 
 MODE_LABELS = {
     "usb": "USB cable",
+    "private": "private network (end-to-end encrypted)",
     "lan": "same network",
     "laptop_hotspot": "laptop hotspot",
     "tablet_hotspot": "tablet hotspot",
@@ -159,6 +160,7 @@ def cmd_pair(args: argparse.Namespace) -> int:
         return wizard.run()
     from tablink.adb import Adb, AdbError
     from tablink.pairing import PairError, Pairing
+    from tablink.server import ServerError
     from tablink.services.remote_desktop import RemoteDesktopError
 
     s = Style(sys.stdout)
@@ -178,6 +180,10 @@ def cmd_pair(args: argparse.Namespace) -> int:
         asyncio.run(Pairing(Adb(), progress).run())
     except PairError as e:
         progress("fail", str(e))
+        return 1
+    except ServerError as e:
+        progress("fail", f"TabLink's server: {e}. Check `systemctl --user status tablinkd`, then "
+                 "run `tablink pair` again.")  # fmt: skip
         return 1
     except (AdbError, RemoteDesktopError, OSError) as e:
         progress("fail", f"{e}. Run `tablink pair` again; finished steps are skipped.")

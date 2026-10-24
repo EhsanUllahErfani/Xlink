@@ -7,6 +7,7 @@ package dev.tablink
 object Protocol {
     private val CON_REF = Regex("MBMID/[0-9]{1,9}")
     private val MAC = Regex("([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}")
+    private val SERVER = Regex("http://[0-9.]{7,15}:[0-9]{2,5}")
     private val IPV4 = Regex("([0-9]{1,3}\\.){3}[0-9]{1,3}")
 
     /** `conRef` is an aFreeRDP saved-connection reference ("MBMID/<id>") to open, if any. */
@@ -18,6 +19,7 @@ object Protocol {
         val mode: String = "",
         val wakeMac: String = "",
         val wakeIp: String = "",
+        val serverUrl: String = "",
     )
 
     /** Human label for the laptop's active link mode. */
@@ -27,6 +29,7 @@ object Protocol {
         "laptop_hotspot" -> "laptop hotspot"
         "tablet_hotspot" -> "tablet hotspot"
         "tailscale" -> "internet (Tailscale)"
+        "private" -> "private network"
         "bluetooth" -> "Bluetooth"
         else -> "connected"
     }
@@ -76,7 +79,8 @@ object Protocol {
         if (type == "clip") return Reply(type, true, stringField(line, "text") ?: "", "", "")
         val mac = stringField(line, "wake_mac")?.takeIf { MAC.matches(it) } ?: ""
         val ip = stringField(line, "wake_ip")?.takeIf { IPV4.matches(it) } ?: ""
-        return Reply(type, ok || type == "hello", message, conRef, mode, mac, ip)
+        val server = stringField(line, "server_url")?.takeIf { SERVER.matches(it) } ?: ""
+        return Reply(type, ok || type == "hello", message, conRef, mode, mac, ip, server)
     }
 
     fun stringField(json: String, name: String): String? {

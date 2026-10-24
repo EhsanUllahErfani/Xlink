@@ -32,23 +32,15 @@ async def test_probe_survives_adb_failure() -> None:
     assert await make(fake).probe() is None
 
 
-async def test_activate_reverses_every_service_port_then_cleans_up() -> None:
+async def test_activate_sets_up_no_adb_tunnel() -> None:
+    # The tablet app reaches the laptop through its own encrypted node, not adb reverse.
     fake = FakeAdb()
     usb = make(fake)
     path = await usb.probe()
     assert path
     await usb.activate(path)
-    assert fake.reverses[USB_SERIAL] == {
-        47800: 47800,
-        3389: 3389,
-        22000: 22000,
-        1716: 1716,
-        2222: 22,
-        8080: 8080,
-    }
+    assert fake.reverses.get(USB_SERIAL, {}) == {}
     await usb.deactivate()
-    assert fake.reverses[USB_SERIAL] == {}
-    await usb.deactivate()  # twice is harmless
 
 
 async def test_deactivate_after_cable_pulled_does_not_raise() -> None:
@@ -59,13 +51,3 @@ async def test_deactivate_after_cable_pulled_does_not_raise() -> None:
     await usb.activate(path)
     fake.usb_attached = False
     await usb.deactivate()
-
-
-async def test_reverse_retries_while_adbd_restarts() -> None:
-    fake = FakeAdb()
-    usb = make(fake)
-    path = await usb.probe()
-    assert path
-    fake.fail_next = "adb: error: closed"
-    await usb.activate(path)
-    assert fake.reverses[USB_SERIAL][47800] == 47800
