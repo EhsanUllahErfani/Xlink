@@ -171,6 +171,16 @@ class Adb:
         if "restarting" not in res.stdout.lower():
             raise AdbError(f"adb tcpip: {(res.stdout + res.stderr).strip() or 'no output'}")
 
+    async def mdns_services(self) -> list[tuple[str, str, str]]:
+        """Wireless-debugging services adb sees on the network: (name, type, "ip:port")."""
+        res = await self._run("mdns", "services", check=False, timeout=10.0)
+        out = []
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and parts[1].startswith("_adb-tls-"):
+                out.append((parts[0], parts[1].rstrip("."), parts[2]))
+        return out
+
     async def tcp_port(self, serial: str) -> int:
         """The port adbd listens on over TCP (0 when TCP mode is off)."""
         value = await self.getprop(serial, "service.adb.tcp.port")

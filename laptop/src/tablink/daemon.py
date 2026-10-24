@@ -240,6 +240,54 @@ class _Networks:
         await self.server.stop()
 
 
+class _AdbRescue:
+    """After a tablet restart adb over TCP is off. When the user turns Wireless debugging on,
+    reconnect (already paired, no code needed) and switch adb back to TCP 5555, which then
+    keeps working across Wi-Fi changes until the next restart."""
+
+    def __init__(self, adb: Any, manager: Any) -> None:
+        self.adb, self.manager = adb, manager
+        self._task: asyncio.Task[None] | None = None
+
+    async def check(self) -> bool:
+        from tablink.adb import LEGACY_TCP_PORT, AdbError
+
+        if self.manager.active is not None:
+            return False
+        if any(d.ready for d in await self.adb.devices()):
+            return False
+        for _name, kind, addr in await self.adb.mdns_services():
+            if kind != "_adb-tls-connect._tcp":
+                continue
+            host, _, port = addr.rpartition(":")
+            try:
+                serial = await self.adb.connect(host, int(port))
+                await self.adb.tcpip(serial, LEGACY_TCP_PORT)
+            except (AdbError, ValueError):
+                continue
+            log.info("tablet back after a restart: adb over Wi-Fi re-enabled")
+            await self.manager.check()
+            return True
+        return False
+
+    async def _loop(self) -> None:
+        while True:
+            try:
+                await self.check()
+            except Exception as e:
+                log.debug("adb rescue: %s", type(e).__name__)
+            await asyncio.sleep(10)
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self) -> None:
+        if self._task:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+
 class _StopOnly:
     """Background entry for parts that start on first use and only need stopping."""
 
@@ -434,6 +482,7 @@ def build() -> Daemon:
             mdns,
             folder,
             _Networks(server, private, tailnet, cfg.network.control_port),
+            _AdbRescue(adb, manager),
             _StopOnly(tailnet),
             _StopOnly(private),
         ],

@@ -43,6 +43,7 @@ class FakeAdb:
     packages: dict[str, int] = field(default_factory=dict)
     refuse_install: bool = False
     drawn: list[str] = field(default_factory=list)
+    mdns: list[tuple[str, str, str]] = field(default_factory=list)
     unlock_on_draw: bool = True
     awake: bool = True
     locked: bool = False
@@ -213,6 +214,11 @@ class FakeAdb:
     def _push(self, serial: str | None, rest: list[str]) -> RunResult:
         self.pushed.append((rest[0], rest[1]))
         return RunResult(0, f"{rest[0]}: 1 file pushed, 0 skipped.\n", "")
+
+    def _mdns(self, serial: str | None, rest: list[str]) -> RunResult:
+        lines = ["List of discovered mdns services", ""]
+        lines += [f"{n}\t{t}.\t{a}" for n, t, a in self.mdns]
+        return RunResult(0, "\n".join(lines) + "\n", "")
 
     def _install(self, serial: str | None, rest: list[str]) -> RunResult:
         if self.refuse_install:

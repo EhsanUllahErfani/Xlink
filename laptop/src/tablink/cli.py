@@ -153,6 +153,61 @@ def cmd_remote(args: argparse.Namespace) -> int:
     return asyncio.run(run())
 
 
+WIFI_STEPS = (
+    "On the tablet:\n"
+    "  1. Settings > About tablet: tap OS version 7 times (once, unlocks Developer options).\n"
+    "  2. Settings > Additional settings > Developer options: turn on Wireless debugging\n"
+    "     (both devices on the same Wi-Fi).\n"
+    "  3. Tap Wireless debugging > Pair device with QR code, and scan this:\n"
+)
+
+
+async def _pair_over_wifi(s: Style) -> bool:
+    from tablink.adb import Adb, AdbError
+    from tablink.wifi_pairing import (
+        WifiPairError,
+        connect_after_pairing,
+        new_qr,
+        pair_with_code,
+        wait_and_pair_qr,
+    )
+
+    adb = Adb()
+    qr = new_qr()
+    print(WIFI_STEPS)
+    print(qr.terminal())
+    print(s.dim("  Waiting for the tablet (2 minutes)... Ctrl-C to type a 6-digit code instead."))
+    try:
+        host = await wait_and_pair_qr(adb, qr, timeout=120)
+    except (WifiPairError, KeyboardInterrupt, asyncio.CancelledError):
+        print("\nOn the tablet: Wireless debugging > Pair device with pairing code.")
+        addr = await asyncio.to_thread(
+            input, "  IP address & port shown there (e.g. 192.168.1.5:37011): "
+        )
+        code = await asyncio.to_thread(input, "  6-digit code: ")
+        try:
+            h, _, p = addr.strip().rpartition(":")
+            host = await pair_with_code(adb, h, int(p), code.strip())
+        except (ValueError, WifiPairError, AdbError) as e:
+            print(s.bad(f"  Pairing failed: {e}"))
+            return False
+    print(s.ok("  ✓ Paired over Wi-Fi"))
+    try:
+        await connect_after_pairing(adb, host)
+    except WifiPairError as e:
+        addr = await asyncio.to_thread(
+            input, f"  {e}\n  IP address & Port (top of the Wireless debugging screen): "
+        )
+        try:
+            h, _, p = addr.strip().rpartition(":")
+            await connect_after_pairing(adb, h, int(p))
+        except (ValueError, WifiPairError, AdbError) as e2:
+            print(s.bad(f"  Could not connect: {e2}"))
+            return False
+    print(s.ok("  ✓ Connected over Wi-Fi"))
+    return True
+
+
 def cmd_pair(args: argparse.Namespace) -> int:
     if args.gui:
         from tablink.ui import wizard
@@ -176,6 +231,8 @@ def cmd_pair(args: argparse.Namespace) -> int:
         print(f"  {marks.get(state, ' ')} {text}", flush=True)
 
     print(s.bold("TabLink setup") + s.dim("  (safe to run again; finished steps are skipped)"))
+    if args.wifi and not asyncio.run(_pair_over_wifi(s)):
+        return 1
     try:
         asyncio.run(Pairing(Adb(), progress).run())
     except PairError as e:
@@ -338,6 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="active link, delay and the state of each service")
     pair = sub.add_parser("pair", help="first-time setup over USB")
     pair.add_argument("--gui", action="store_true", help="show the setup window")
+    pair.add_argument("--wifi", action="store_true", help="pair over Wi-Fi (QR code), no USB")
     sub.add_parser("remote", help="show this laptop's desktop on the tablet")
     sub.add_parser("wake", help="wake the tablet and show its PIN pad")
     hs = sub.add_parser("hotspot", help="start or stop the laptop hotspot")

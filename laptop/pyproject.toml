@@ -12,6 +12,7 @@ dependencies = [
     "websockets",
     "secretstorage",
     "tomli-w",
+    "segno",  # QR code for pairing the tablet over Wi-Fi (pure Python)
 ]
 
 [project.optional-dependencies]

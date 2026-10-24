@@ -290,7 +290,7 @@ private fun Checklist() {
     val notifAccess = Settings.Secure.getString(
         context.contentResolver, "enabled_notification_listeners",
     )?.contains(context.packageName) == true
-    if (battery && notifAccess) return
+    if (battery && notifAccess && smartLockSeen(context)) return
     Column(
         Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -310,6 +310,30 @@ private fun Checklist() {
             }) {
                 Text("3. Allow notification access (shows tablet notifications on the laptop)")
             }
+        }
+        TextButton(onClick = { openSmartLock(context) }) {
+            Text("4. Optional: stay unlocked near your laptop (Smart Lock > Trusted devices)")
+        }
+    }
+}
+
+private fun smartLockSeen(context: Context): Boolean =
+    context.getSharedPreferences("tablink", Context.MODE_PRIVATE).getBoolean("smart_lock_seen", false)
+
+/** Android's Smart Lock (Trusted devices) lives in the security settings. */
+private fun openSmartLock(context: Context) {
+    context.getSharedPreferences("tablink", Context.MODE_PRIVATE).edit()
+        .putBoolean("smart_lock_seen", true).apply()
+    val tries = listOf(
+        Intent("android.settings.SMART_LOCK_SETTINGS"),
+        Intent(Settings.ACTION_SECURITY_SETTINGS),
+    )
+    for (i in tries) {
+        try {
+            context.startActivity(i)
+            return
+        } catch (e: Exception) {
+            continue
         }
     }
 }

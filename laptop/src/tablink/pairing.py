@@ -163,8 +163,15 @@ class Pairing:
         self.fetch = fetch or fetch_verified
 
     async def find_tablet(self) -> Device:
-        self.progress("run", "Looking for the tablet on USB")
-        devices = [d for d in await self.adb.devices() if d.transport == "usb"]
+        self.progress("run", "Looking for the tablet (Wi-Fi or USB)")
+        everything = await self.adb.devices()
+        wireless = [d for d in everything if d.transport == "tcp" and d.ready]
+        devices = [d for d in everything if d.transport == "usb"]
+        if wireless and not any(d.ready for d in devices):
+            dev = wireless[0]
+            name = await self.adb.getprop(dev.serial, "ro.product.marketname")
+            self.progress("ok", f"Found {name or dev.model or dev.serial} over Wi-Fi")
+            return dev
         if any(d.state == "unauthorized" for d in devices):
             raise PairError(
                 'Unlock the tablet and tap "Allow" on the "Allow USB debugging?" prompt '
@@ -173,8 +180,8 @@ class Pairing:
         ready = [d for d in devices if d.ready]
         if not ready:
             raise PairError(
-                "No tablet on USB. Plug it in with a USB-C cable and turn on "
-                "Settings > Additional settings > Developer options > USB debugging."
+                "No tablet found. Pair it over Wi-Fi with `tablink pair --wifi` (or the "
+                "setup window), or plug it in with USB debugging on."
             )
         dev = ready[0]
         name = await self.adb.getprop(dev.serial, "ro.product.marketname")
@@ -321,7 +328,7 @@ class Pairing:
         if await self.adb.tcp_port(serial) != LEGACY_TCP_PORT:
             await self.adb.tcpip(serial, LEGACY_TCP_PORT)
             await self.adb.wait_for(serial)
-        self.progress("ok", "Wi-Fi ready (redo after a tablet restart: plug in once)")
+        self.progress("ok", "Wi-Fi ready (after a tablet restart, turn Wireless debugging on once)")
 
     async def run(self) -> None:
         dev = await self.find_tablet()
