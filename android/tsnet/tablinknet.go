@@ -58,6 +58,9 @@ func init() {
 
 // NewNode prepares a node; dir is private app storage for Tailscale's working files.
 func NewNode(dir, hostname string, store Store) *Node {
+	// Android apps have no $HOME/cache dir; without this Tailscale's log setup panics
+	// ("no safe place found to store log state"). Uploads stay off (TS_NO_LOGS_NO_SUPPORT).
+	_ = os.Setenv("TS_LOGS_DIR", dir)
 	return &Node{
 		srv: &tsnet.Server{
 			Dir:      dir,

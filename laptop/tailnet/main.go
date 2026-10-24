@@ -100,6 +100,7 @@ func main() {
 		dir = filepath.Join(os.TempDir(), "tablink-tailnet")
 	}
 	_ = os.MkdirAll(dir, 0o700)
+	_ = os.Setenv("TS_LOGS_DIR", dir) // keep Tailscale's local log state with its other files
 	host := init.Host
 	if host == "" {
 		host = "tablink-laptop"

@@ -48,8 +48,11 @@ class LinkService : Service() {
         scope.launch {
             try {
                 Tailnet.start(this@LinkService)
-            } catch (e: Exception) {
+                android.util.Log.i("TabLink", "internet access node started")
+            } catch (e: Throwable) {
                 // Internet access stays off; the local link still works.
+                Tailnet.lastError = "${e.javaClass.simpleName}: ${e.message?.take(120)}"
+                android.util.Log.w("TabLink", "internet access failed to start: ${Tailnet.lastError}")
             }
         }
     }

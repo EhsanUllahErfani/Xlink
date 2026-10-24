@@ -353,6 +353,7 @@ private fun InternetAccess() {
             "Running" -> Color(0xFF2E9D4E) to "Internet access on · ${status.ip}"
             "NeedsLogin", "NeedsMachineAuth" -> Color(0xFFE0A800) to "Internet access: sign in once"
             "Off" -> Color.Gray to "Internet access starting…"
+            "Error" -> Color(0xFFC0392B) to "Internet access unavailable: ${status.ip}"
             else -> Color.Gray to "Internet access: ${status.state.lowercase()}…"
         }
         Box(Modifier.size(10.dp).clip(CircleShape).background(color))
