@@ -257,14 +257,11 @@ def cmd_internet(args: argparse.Namespace) -> int:
         return 1
     print(reply.get("message", reply))
     if url := reply.get("url"):
+        from tablink.notify import open_link
+
         print(f"  {url}")
-        with contextlib.suppress(Exception):
-            import gi
-
-            gi.require_version("Gio", "2.0")
-            from gi.repository import Gio
-
-            Gio.AppInfo.launch_default_for_uri(url, None)  # opens the browser
+        if open_link(url):
+            print("  (opened in your browser)")
     return 0 if reply.get("ok") else 1
 
 
