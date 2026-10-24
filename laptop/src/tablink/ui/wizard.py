@@ -85,4 +85,5 @@ def run() -> int:
     asyncio.set_event_loop_policy(GLibEventLoopPolicy())
     app = Adw.Application(application_id="dev.tablink.Setup", flags=Gio.ApplicationFlags.FLAGS_NONE)
     app.connect("activate", lambda a: Wizard(a).present())
-    return app.run([sys.argv[0]])
+    code: int = app.run([sys.argv[0]])
+    return code
