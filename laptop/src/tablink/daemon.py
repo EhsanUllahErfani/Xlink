@@ -115,6 +115,7 @@ class Daemon:
         self.screen = screen
         self._server: asyncio.Server | None = None
         self._status_task: asyncio.Task[None] | None = None
+        self.folder: Any = None  # the shared-folder sync, when running
 
     @property
     def path(self) -> TabletPath | None:
@@ -131,6 +132,10 @@ class Daemon:
         if self.screen is not None:
             svc = self.screen.scrcpy
             self.status.services.append(ServiceStatus("screen", svc.state, svc.status_detail))
+        if self.folder is not None:
+            st = self.folder.state
+            shown = {"idle": "connected", "syncing": "syncing"}.get(st, "offline")
+            self.status.services.append(ServiceStatus("folder", shown, "~/TabLink"))
 
     async def _local(self, msg: dict[str, Any]) -> dict[str, Any]:
         cmd = msg.get("cmd")
@@ -228,6 +233,7 @@ def build() -> Daemon:
     from tablink.secrets import KeyringStore, control_token, get_or_create
     from tablink.services.clipboard import ClipboardSync, ShellBridge
     from tablink.services.files import FileReceiver
+    from tablink.services.folder_sync import AdbRemote, FolderSync
     from tablink.services.scrcpy import ScrcpyService
     from tablink.services.wake import wake_info, wake_screen
     from tablink.tailscale import Tailscale, find_tablet
@@ -344,12 +350,26 @@ def build() -> Daemon:
         token=lambda: control_token(keyring),
         files=FileReceiver(on_saved=lambda name: private_notify("Received from tablet", name)),
     )
+
+    def tablet_folder() -> AdbRemote | None:
+        path = holder["d"].path
+        if path is None or path.adb_serial is None or path.mode == "bluetooth":
+            return None
+        return AdbRemote(adb, path.adb_serial)
+
+    folder = FolderSync(
+        Path.home() / "TabLink",
+        Path.home() / ".local" / "state" / "tablink" / "folder-sync.json",
+        tablet_folder,
+        notify=private_notify,
+    )
     d = Daemon(
         control=control,
         manager=manager,
         screen=screen,
-        background=[clipboard, mdns, _StopOnly(tailnet)],
+        background=[clipboard, mdns, folder, _StopOnly(tailnet)],
     )
+    d.folder = folder
     holder["d"] = d
 
     async def hotspot_on(msg: dict[str, Any]) -> dict[str, Any]:

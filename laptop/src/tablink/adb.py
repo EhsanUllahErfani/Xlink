@@ -244,6 +244,18 @@ class Adb:
             raise ValueError(f"not a package name: {package}")
         await self.shell(serial, "am", "force-stop", package)
 
+    async def pull(self, serial: str, remote: str, local: Path) -> None:
+        await self._run("pull", remote, str(local), serial=serial, timeout=1800.0)
+
+    async def push_to(self, serial: str, local: Path, remote_path: str) -> None:
+        """Copy one file to an exact path on the tablet (folders are created) and index it."""
+        await self._run("push", str(local), remote_path, serial=serial, timeout=1800.0)
+        with contextlib.suppress(AdbError):
+            await self.shell(
+                serial, "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                "-d", "file://" + quote(remote_path, safe="/"),
+            )  # fmt: skip
+
     async def push(self, serial: str, local: Path, remote_dir: str) -> str:
         """Copy one file into `remote_dir` and ask Android to index it. Returns the remote path."""
         remote = remote_dir.rstrip("/") + "/" + local.name
