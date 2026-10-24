@@ -38,6 +38,18 @@ object Secrets {
         return gen.generateKey()
     }
 
+    internal fun encryptBytes(plain: ByteArray): String {
+        val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+        return Base64.encodeToString(c.iv + c.doFinal(plain), Base64.NO_WRAP)
+    }
+
+    internal fun decryptBytes(stored: String): ByteArray {
+        val raw = Base64.decode(stored, Base64.NO_WRAP)
+        val c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, raw, 0, 12))
+        return c.doFinal(raw, 12, raw.size - 12)
+    }
+
     private fun encrypt(plain: String): String {
         val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val out = c.iv + c.doFinal(plain.toByteArray())

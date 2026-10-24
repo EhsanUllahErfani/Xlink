@@ -46,6 +46,8 @@ dependencies {
     // The RDP engine: FreeRDP's freeRDPCore, built from source by scripts/build-freerdp.sh,
     // plus the libraries it is built against.
     implementation(files("libs/freeRDPCore-release.aar"))
+    // Built-in Tailscale node (tsnet), built by scripts/build-tsnet.sh.
+    implementation(files("libs/tablinknet.aar"))
     implementation(libs.freerdp.appcompat)
     implementation(libs.freerdp.core)
     implementation(libs.freerdp.preference)

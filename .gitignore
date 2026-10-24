@@ -30,3 +30,6 @@ captures/
 # FreeRDP source and the library built from it (android/scripts/build-freerdp.sh)
 android/third_party/
 android/app/libs/*.aar
+
+# Built tailnet helper (laptop/tailnet, go build)
+laptop/tailnet/tablink-tailnet

@@ -196,6 +196,19 @@ class Daemon:
             await self.stop()
 
 
+class _StopOnly:
+    """Background entry for parts that start on first use and only need stopping."""
+
+    def __init__(self, part: Any) -> None:
+        self.part = part
+
+    def start(self) -> None:
+        pass
+
+    async def stop(self) -> None:
+        await self.part.stop()
+
+
 def build() -> Daemon:
     """The real daemon, wired to adb, the path providers, the screen and remote desktop."""
     from tablink import config as config_mod
@@ -213,7 +226,7 @@ def build() -> Daemon:
     from tablink.services.files import FileReceiver
     from tablink.services.scrcpy import ScrcpyService
     from tablink.services.wake import wake_info, wake_screen
-    from tablink.tailscale import Tailscale
+    from tablink.tailscale import Tailscale, find_tablet
 
     cfg = config_mod.load()
     adb = Adb()
@@ -250,9 +263,10 @@ def build() -> Daemon:
     )
     scrcpy = ScrcpyService(adb, cfg.video, title=f"{cfg.device.tablet_name} · TabLink")
     screen = ScreenSession(scrcpy, subprocess_spawner, cfg, desktop_notify)
+    tailnet = Tailscale(KeyringStore("tailnet-state"))
     ts_path = TailscalePath(
         adb,
-        Tailscale(),
+        tailnet,
         enabled=lambda: config_mod.load().tailscale.enabled,
         name_hint=lambda: config_mod.load().device.tablet_name,
         control_port=cfg.network.control_port,
@@ -324,7 +338,9 @@ def build() -> Daemon:
         token=lambda: control_token(keyring),
         files=FileReceiver(),
     )
-    d = Daemon(control=control, manager=manager, screen=screen, background=[clipboard])
+    d = Daemon(
+        control=control, manager=manager, screen=screen, background=[clipboard, _StopOnly(tailnet)]
+    )
     holder["d"] = d
 
     async def hotspot_on(msg: dict[str, Any]) -> dict[str, Any]:
@@ -366,7 +382,35 @@ def build() -> Daemon:
             return {"ok": False, "message": f"Pinned to {mode}, but that link does not work now."}
         return {"ok": True, "message": f"Pinned to {mode} ({path.rtt_ms:.0f} ms)."}
 
+    async def internet(msg: dict[str, Any]) -> dict[str, Any]:
+        action = msg.get("action")
+        current = config_mod.load()
+        if action == "off":
+            current.tailscale.enabled = False
+            config_mod.save(current)
+            await tailnet.stop()
+            await manager.check()
+            return {"ok": True, "message": "Internet access is off."}
+        if action == "on":
+            current.tailscale.enabled = True
+            config_mod.save(current)
+        st = await tailnet.status() if current.tailscale.enabled else None
+        if st is None:
+            return {"ok": True, "message": "Internet access is off (tablink internet on)."}
+        if st.running:
+            ip = st.self_ips[0] if st.self_ips else "?"
+            tab = find_tablet(st, current.device.tablet_name)
+            where = f"tablet at {tab.ips[0]}" if tab else "tablet not signed in yet"
+            return {"ok": True, "message": f"Internet access is on ({ip}); {where}."}
+        url = st.auth_url or await tailnet.login()
+        return {
+            "ok": True,
+            "message": "Sign in once to turn on internet access:",
+            "url": url,
+        }
+
     d.local_handlers = {
+        "internet": internet,
         "hotspot_on": hotspot_on,
         "hotspot_off": hotspot_off,
         "force_path": force_path,

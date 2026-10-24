@@ -462,3 +462,6 @@ Agreed with the owner during the build; where these differ from the sections abo
 | Ports | RustDesk 21118, KDE Connect 1716 | **RDP 3389**; SSH reaches the tablet as 127.0.0.1:2222 (Android cannot bind ports below 1024) | Follows the engine change |
 | Pairing | GTK wizard | **`tablink pair`** (CLI, every step idempotent); GTK wizard later | Working path first |
 | scrcpy | 4.x | **5.0.1** (no breaking changes, hardware decoding) | Released after the spec |
+| Internet mode (7) | Tailscale app/daemon on both devices | **Tailscale built into TabLink on both sides** (tsnet, no VPN, no separate install): `android/tsnet` in the app, `laptop/tailnet` helper run by the daemon; keys in Android Keystore / GNOME keyring; diagnostic log upload off | Owner's request: nothing separate to install |
+| Unlocking from the laptop | Not specified | **Unlock pad** in the laptop bar (pattern or PIN), opens by itself while the tablet is locked | Android blanks the lock screen's pattern/PIN view in every mirror |
+| Waking | Not specified | **Wake tablet** (laptop menu) and **Wake laptop** (tablet app: screen on, or Wake-on-Wi-Fi magic packet on the same network) | A sleeping laptop cannot be reached from the internet |

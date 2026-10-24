@@ -19,10 +19,12 @@ spec disagree, the spec wins; point out the conflict.
 
 - Laptop: Python 3.12, asyncio, PyGObject (GTK4 + libadwaita), python-zeroconf, websockets,
   secretstorage, tomli-w. Tests: pytest, pytest-asyncio. Lint/type: ruff, mypy.
+  Built-in Tailscale helper: Go 1.27 + tailscale.com/tsnet (`laptop/tailnet`, pinned in go.mod).
 - Android: Kotlin, Jetpack Compose, minSdk 30, targetSdk 36, FreeRDP (freeRDPCore, built from
-  source by `android/scripts/build-freerdp.sh`, with the AndroidX libraries it needs). Tests: JUnit.
+  source by `android/scripts/build-freerdp.sh`, with the AndroidX libraries it needs), built-in
+  Tailscale (`android/tsnet`, gomobile, `android/scripts/build-tsnet.sh`). Tests: JUnit.
 - External tools wrapped (one module each): adb, scrcpy, grdctl + openssl (remote desktop),
-  systemctl, nmcli, tailscale, syncthing (REST API), ssh.
+  systemctl, nmcli, tablink-tailnet (built-in Tailscale), syncthing (REST API), ssh.
 
 ## Repo layout
 

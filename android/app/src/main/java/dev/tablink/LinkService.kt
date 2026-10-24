@@ -42,10 +42,18 @@ class LinkService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
         scope.launch { loop() }
+        scope.launch {
+            try {
+                Tailnet.start(this@LinkService)
+            } catch (e: Exception) {
+                // Internet access stays off; the local link still works.
+            }
+        }
     }
 
     override fun onDestroy() {
         running = false
+        Tailnet.stop()
         scope.cancel()
         super.onDestroy()
     }

@@ -23,6 +23,13 @@ jobs:
         run: mypy src
       - name: Test
         run: pytest -q
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: laptop/tailnet/go.sum
+      - name: Build tailnet helper
+        working-directory: laptop/tailnet
+        run: go vet ./... && CGO_ENABLED=0 go build -trimpath -o tablink-tailnet .
 
   android:
     runs-on: ubuntu-24.04
@@ -50,5 +57,15 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.13113456" "cmake;4.1.2" "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
           ./scripts/build-freerdp.sh
+      # Built-in Tailscale (tsnet) for the app, pinned by android/tsnet/go.mod + go.sum.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: android/tsnet/go.sum
+      - name: Build built-in Tailscale
+        run: |
+          v=$(cd tsnet && go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@$v golang.org/x/mobile/cmd/gobind@$v
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.13113456" JAVA_HOME="$JAVA_HOME" ./scripts/build-tsnet.sh
       - name: Build and test
         run: ./gradlew assembleDebug test

@@ -10,7 +10,11 @@ import secrets as pysecrets
 from collections.abc import Callable
 from typing import Any, Protocol
 
-LABELS = {"control-token": "TabLink pairing token", "hotspot-password": "TabLink hotspot password"}
+LABELS = {
+    "control-token": "TabLink pairing token",
+    "hotspot-password": "TabLink hotspot password",
+    "tailnet-state": "TabLink internet access keys",
+}
 
 
 class Store(Protocol):

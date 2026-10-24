@@ -228,6 +228,7 @@ private fun TabLinkScreen(client: ControlClient) {
                     Text(message, textAlign = TextAlign.Center, fontSize = 15.sp)
                 }
             }
+            InternetAccess()
             Checklist()
             if (connected == false) {
                 TextButton(onClick = {
@@ -324,5 +325,38 @@ private fun openAutostart(context: Context) {
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                 .setData(Uri.parse("package:${context.packageName}")),
         )
+    }
+}
+
+
+/** Built-in Tailscale: lets the laptop reach (and wake) this tablet from anywhere. */
+@Composable
+private fun InternetAccess() {
+    val context = LocalContext.current
+    var status by remember { mutableStateOf(Tailnet.Status("Off", "", "")) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            status = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                Tailnet.status()
+            }
+            delay(3_000)
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        val (color, text) = when (status.state) {
+            "Running" -> Color(0xFF2E9D4E) to "Internet access on · ${status.ip}"
+            "NeedsLogin", "NeedsMachineAuth" -> Color(0xFFE0A800) to "Internet access: sign in once"
+            "Off" -> Color.Gray to "Internet access starting…"
+            else -> Color.Gray to "Internet access: ${status.state.lowercase()}…"
+        }
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.size(8.dp))
+        Text(text, fontSize = 15.sp)
+        if (status.authUrl.isNotEmpty()) {
+            Spacer(Modifier.size(8.dp))
+            TextButton(onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(status.authUrl)))
+            }) { Text("Sign in") }
+        }
     }
 }

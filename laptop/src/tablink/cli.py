@@ -203,6 +203,25 @@ def cmd_hotspot(args: argparse.Namespace) -> int:
     return 0 if reply.get("ok") else 1
 
 
+def cmd_internet(args: argparse.Namespace) -> int:
+    try:
+        reply = asyncio.run(daemon.request({"cmd": "internet", "action": args.state}, timeout=45.0))
+    except (OSError, TimeoutError, ValueError):
+        print("tablink: the TabLink service is not running", file=sys.stderr)
+        return 1
+    print(reply.get("message", reply))
+    if url := reply.get("url"):
+        print(f"  {url}")
+        with contextlib.suppress(Exception):
+            import gi
+
+            gi.require_version("Gio", "2.0")
+            from gi.repository import Gio
+
+            Gio.AppInfo.launch_default_for_uri(url, None)  # opens the browser
+    return 0 if reply.get("ok") else 1
+
+
 def cmd_path(args: argparse.Namespace) -> int:
     if not args.force and not args.auto:
         print("use --force MODE or --auto", file=sys.stderr)
@@ -278,6 +297,8 @@ def build_parser() -> argparse.ArgumentParser:
     send = sub.add_parser("send", help="send files to the tablet")
     send.add_argument("files", nargs="+", metavar="FILE")
     sub.add_parser("doctor", help="test every link and print a fix for each failure")
+    net = sub.add_parser("internet", help="built-in Tailscale: reach the tablet from anywhere")
+    net.add_argument("state", choices=("on", "off", "status"))
     path = sub.add_parser("path", help="pin one link mode, for testing")
     path.add_argument("--force", choices=MODES, metavar="MODE", help=", ".join(MODES))
     path.add_argument("--auto", action="store_true", help="go back to automatic link choice")
@@ -302,6 +323,7 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "send": not_yet("T15"),
     "doctor": not_yet("T18"),
     "path": cmd_path,
+    "internet": cmd_internet,
 }
 
 
