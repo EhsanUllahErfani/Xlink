@@ -10,6 +10,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSuggestion
 import android.os.IBinder
@@ -42,6 +44,7 @@ class LinkService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
         scope.launch { loop() }
+        announce()
         scope.launch {
             try {
                 Tailnet.start(this@LinkService)
@@ -53,6 +56,7 @@ class LinkService : Service() {
 
     override fun onDestroy() {
         running = false
+        nsdListener?.let { runCatching { getSystemService(NsdManager::class.java).unregisterService(it) } }
         Tailnet.stop()
         scope.cancel()
         super.onDestroy()
@@ -89,6 +93,31 @@ class LinkService : Service() {
             }
             connected = false
             delay(3_000)
+        }
+    }
+
+    private var nsdListener: NsdManager.RegistrationListener? = null
+
+    /**
+     * Announce TabLink on the local network (mDNS `_tablink._tcp`), so the laptop finds the
+     * tablet even after its Wi-Fi address changed. Port = the tablet's adb over Wi-Fi.
+     */
+    private fun announce() {
+        val info = NsdServiceInfo().apply {
+            serviceName = Tailnet.hostname()
+            serviceType = "_tablink._tcp"
+            port = 5555
+        }
+        val listener = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(i: NsdServiceInfo) = Unit
+            override fun onRegistrationFailed(i: NsdServiceInfo, code: Int) = Unit
+            override fun onServiceUnregistered(i: NsdServiceInfo) = Unit
+            override fun onUnregistrationFailed(i: NsdServiceInfo, code: Int) = Unit
+        }
+        runCatching {
+            getSystemService(NsdManager::class.java)
+                .registerService(info, NsdManager.PROTOCOL_DNS_SD, listener)
+            nsdListener = listener
         }
     }
 

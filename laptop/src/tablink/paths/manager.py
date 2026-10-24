@@ -33,6 +33,9 @@ class PathManager:
         self._active_provider: PathProvider | None = None
         self._task: asyncio.Task[None] | None = None
         self.changed = asyncio.Event()
+        # One check at a time: the 5 s loop and on-demand checks (path --force, hotspot)
+        # must never activate/deactivate providers concurrently.
+        self._check_lock = asyncio.Lock()
 
     def _candidates(self) -> list[PathProvider]:
         if self.forced_mode:
@@ -41,6 +44,10 @@ class PathManager:
 
     async def check(self) -> Path | None:
         """One round: find the best working path and switch to it if it changed."""
+        async with self._check_lock:
+            return await self._check_locked()
+
+    async def _check_locked(self) -> Path | None:
         best: tuple[PathProvider, Path] | None = None
         for prov in self._candidates():
             # Providers worse than the active one are only tried if the active one failed.

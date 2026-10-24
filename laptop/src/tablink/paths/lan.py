@@ -50,6 +50,7 @@ class LanPath:
         adb: Adb,
         known_addrs: Callable[[], list[str]],
         hotspot_iface: Callable[[], Awaitable[str | None]] | None = None,
+        discovered: Callable[[], list[str]] = lambda: [],
         reachable: Callable[[str, int], Awaitable[bool]] = tcp_reachable,
         gateways: Callable[[], list[str]] = default_gateways,
         local_addr: Callable[[str], str | None] = local_addr_towards,
@@ -62,6 +63,7 @@ class LanPath:
         self.local_addr = local_addr
         self.known_addrs = known_addrs
         self.hotspot_iface = hotspot_iface
+        self.discovered = discovered
         self.neighbours = neighbours
 
     async def probe(self) -> Path | None:
@@ -69,8 +71,10 @@ class LanPath:
         iface = await self.hotspot_iface() if self.hotspot_iface else None
         clients = self.neighbours(iface) if iface else []
         # Laptop-hotspot clients first (the tablet is one of very few), then known addresses,
-        # then the gateway (the tablet itself when it is the hotspot).
-        candidates = list(dict.fromkeys([*clients, *self.known_addrs(), *gateways]))
+        # then what mDNS found, then the gateway (the tablet itself when it is the hotspot).
+        candidates = list(
+            dict.fromkeys([*clients, *self.known_addrs(), *self.discovered(), *gateways])
+        )
         for addr in candidates:
             path = await self._probe_one(addr, gateways, addr in clients)
             if path is not None:

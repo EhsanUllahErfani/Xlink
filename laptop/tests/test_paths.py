@@ -191,3 +191,42 @@ async def test_lan_activate_opens_tunnel_over_wifi_adb() -> None:
     assert fake.reverses["192.0.2.20:5555"][3389] == 3389
     await lan.deactivate()
     assert fake.reverses["192.0.2.20:5555"] == {}
+
+
+async def test_concurrent_checks_never_overlap() -> None:
+    import asyncio
+
+    active = 0
+    worst = 0
+
+    class Slow(FakeProvider):
+        async def activate(self, path: Path) -> None:
+            nonlocal active, worst
+            active += 1
+            worst = max(worst, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+
+    usb = Slow("usb", 0, USB)
+    mgr = PathManager([usb])
+    usb.path = USB
+    await asyncio.gather(*(mgr.check() for _ in range(5)))
+    assert (worst == 1 and usb.activations == 0) or worst == 1
+
+
+async def test_lan_probe_uses_mdns_when_known_address_is_stale() -> None:
+    fake = FakeAdb(usb_attached=False, tcpip_enabled=True)
+
+    async def reach(addr: str, port: int) -> bool:
+        return addr == "192.0.2.77"  # the tablet's new address
+
+    lan = LanPath(
+        Adb(runner=fake, adb_path="adb"),
+        lambda: ["192.0.2.20"],
+        discovered=lambda: ["192.0.2.77"],
+        reachable=reach,
+        gateways=lambda: ["192.0.2.1"],
+        local_addr=lambda a: "192.0.2.5",
+    )
+    path = await lan.probe()
+    assert path is not None and path.tablet_addr == "192.0.2.77"

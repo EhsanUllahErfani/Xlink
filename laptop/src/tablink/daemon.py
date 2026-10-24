@@ -154,6 +154,9 @@ class Daemon:
                 reply = await self._local(msg) if isinstance(msg, dict) else {"error": "bad"}
             except ValueError:
                 reply = {"error": "bad message"}
+            except Exception as e:  # report the real problem instead of dropping the CLI
+                log.exception("local command failed")
+                reply = {"ok": False, "message": f"{type(e).__name__}: {e}"}
             writer.write(json.dumps(reply).encode() + b"\n")
             await writer.drain()
         finally:
@@ -217,6 +220,7 @@ def build() -> Daemon:
     from tablink.nmcli import new_password as new_hotspot_password
     from tablink.notify import desktop_notify, private_notify
     from tablink.paths.lan import LanPath
+    from tablink.paths.mdns import MdnsDiscovery
     from tablink.paths.tailscale import TailscalePath
     from tablink.proc import subprocess_spawner
     from tablink.remote_session import prepare_remote
@@ -255,10 +259,12 @@ def build() -> Daemon:
         except Exception:  # NetworkManager busy or missing: treat as no hotspot
             return None
 
+    mdns = MdnsDiscovery()
     lan = LanPath(
         adb,
         lambda: config_mod.load().network.known_tablet_addrs,
         hotspot_iface=hotspot_iface,
+        discovered=mdns.found,
         control_port=cfg.network.control_port,
     )
     scrcpy = ScrcpyService(adb, cfg.video, title=f"{cfg.device.tablet_name} · TabLink")
@@ -336,10 +342,13 @@ def build() -> Daemon:
         },
         hello_extra=hello,
         token=lambda: control_token(keyring),
-        files=FileReceiver(),
+        files=FileReceiver(on_saved=lambda name: private_notify("Received from tablet", name)),
     )
     d = Daemon(
-        control=control, manager=manager, screen=screen, background=[clipboard, _StopOnly(tailnet)]
+        control=control,
+        manager=manager,
+        screen=screen,
+        background=[clipboard, mdns, _StopOnly(tailnet)],
     )
     holder["d"] = d
 

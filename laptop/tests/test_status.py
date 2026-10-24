@@ -73,9 +73,9 @@ def test_cli_status_bad_config(capsys: pytest.CaptureFixture[str]) -> None:
     assert "bad config" in capsys.readouterr().err
 
 
-def test_unimplemented_command_says_which_task(capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.main(["doctor"]) == 2
-    assert "T18" in capsys.readouterr().err
+def test_send_rejects_missing_files(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["send", "/no/such/file.txt"]) == 1
+    assert "not a file" in capsys.readouterr().err
 
 
 def test_format_status_offline_link() -> None:

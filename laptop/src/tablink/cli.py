@@ -203,6 +203,52 @@ def cmd_hotspot(args: argparse.Namespace) -> int:
     return 0 if reply.get("ok") else 1
 
 
+def cmd_send(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from tablink.adb import Adb, AdbError
+    from tablink.services.scrcpy import TABLET_DROP_DIR
+
+    files = [Path(f) for f in args.files]
+    missing = [str(f) for f in files if not f.is_file()]
+    if missing:
+        print(f"tablink: not a file: {', '.join(missing)}", file=sys.stderr)
+        return 1
+
+    async def run() -> int:
+        adb = Adb()
+        serial, _mode = await active_serial(adb)
+        if serial is None:
+            print(f"tablink: tablet not found. {NO_TABLET_TEXT}", file=sys.stderr)
+            return 1
+        for f in files:
+            try:
+                await adb.push(serial, f, TABLET_DROP_DIR)
+            except AdbError as e:
+                print(f"tablink: could not send {f.name}: {e}", file=sys.stderr)
+                return 1
+            print(f"sent {f.name}")
+        print(f"{len(files)} file(s) in Download/TabLink on the tablet")
+        return 0
+
+    return asyncio.run(run())
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from tablink.doctor import Doctor
+
+    s = Style(sys.stdout)
+    checks = asyncio.run(Doctor().run())
+    print(s.bold("TabLink doctor"))
+    width = max(len(c.name) for c in checks)
+    for c in checks:
+        mark = s.ok("✓") if c.ok else (s.dim("·") if c.ok is None else s.bad("✗"))
+        print(f"  {mark} {c.name:<{width}}  {c.detail}")
+        if c.fix and c.ok is False:
+            print(s.dim(f"    {'':<{width}}  fix: {c.fix}"))
+    return 0 if all(c.ok is not False for c in checks) else 1
+
+
 def cmd_internet(args: argparse.Namespace) -> int:
     try:
         reply = asyncio.run(daemon.request({"cmd": "internet", "action": args.state}, timeout=45.0))
@@ -270,14 +316,6 @@ def cmd_bar(args: argparse.Namespace) -> int:
     return bar.run(args.serial, args.name, args.subtitle)
 
 
-def not_yet(task: str) -> Callable[[argparse.Namespace], int]:
-    def run(args: argparse.Namespace) -> int:
-        print(f"tablink {args.command}: not implemented yet ({task})", file=sys.stderr)
-        return 2
-
-    return run
-
-
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="tablink",
@@ -320,8 +358,8 @@ HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
     "wake": cmd_wake,
     "pair": cmd_pair,
     "hotspot": cmd_hotspot,
-    "send": not_yet("T15"),
-    "doctor": not_yet("T18"),
+    "send": cmd_send,
+    "doctor": cmd_doctor,
     "path": cmd_path,
     "internet": cmd_internet,
 }

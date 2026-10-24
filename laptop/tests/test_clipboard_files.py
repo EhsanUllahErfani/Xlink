@@ -88,3 +88,17 @@ async def test_from_tablet_without_extension_reports_false() -> None:
 
     sync = ClipboardSync(Missing(), push)
     assert await sync.from_tablet("x") is False
+
+
+async def test_receiver_announces_saved_file(tmp_path: Path) -> None:
+    import asyncio
+
+    from tablink.services.files import FileReceiver
+
+    seen: list[str] = []
+    r = FileReceiver(tmp_path, on_saved=seen.append)
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"hello")
+    reader.feed_eof()
+    assert await r.receive("note.txt", 5, reader) == "note.txt"
+    assert seen == ["note.txt"]

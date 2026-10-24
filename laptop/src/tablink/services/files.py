@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 CHUNK = 1 << 20
@@ -32,8 +33,11 @@ def unique_path(folder: Path, name: str) -> Path:
 
 
 class FileReceiver:
-    def __init__(self, folder: Path | None = None) -> None:
+    def __init__(
+        self, folder: Path | None = None, on_saved: Callable[[str], None] | None = None
+    ) -> None:
         self.folder = folder or downloads_dir()
+        self.on_saved = on_saved
 
     async def receive(self, name: str, size: int, reader: asyncio.StreamReader) -> str:
         self.folder.mkdir(parents=True, exist_ok=True)
@@ -50,4 +54,6 @@ class FileReceiver:
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise
+        if self.on_saved:
+            await asyncio.to_thread(self.on_saved, dest.name)
         return dest.name

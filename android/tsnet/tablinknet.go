@@ -148,10 +148,34 @@ func (n *Node) ForwardToLocal(port int) error {
 				}
 				continue
 			}
+			if !n.sameUser(c.RemoteAddr().String()) {
+				_ = c.Close() // only the owner's own devices may reach the tablet
+				continue
+			}
 			go relay(c, "127.0.0.1:"+itoa(port))
 		}
 	}()
 	return nil
+}
+
+// sameUser reports whether the peer at addr belongs to the same Tailscale user as this node
+// (so devices shared into the tailnet by someone else cannot reach the tablet's adb).
+func (n *Node) sameUser(addr string) bool {
+	lc, err := n.srv.LocalClient()
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	who, err := lc.WhoIs(ctx, addr)
+	if err != nil || who == nil || who.UserProfile == nil {
+		return false
+	}
+	st, err := lc.StatusWithoutPeers(ctx)
+	if err != nil || st.Self == nil {
+		return false
+	}
+	return who.UserProfile.ID == st.Self.UserID
 }
 
 func relay(in net.Conn, target string) {
