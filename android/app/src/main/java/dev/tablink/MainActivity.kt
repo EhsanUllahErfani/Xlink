@@ -207,6 +207,12 @@ private fun TabLinkScreen(client: ControlClient) {
                 }
             }
             TextButton(
+                onClick = { context.startActivity(Intent(context, TerminalActivity::class.java)) },
+                enabled = connected == true,
+            ) {
+                Text("Terminal on laptop", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(
                 onClick = {
                     if (!busy) {
                         busy = true

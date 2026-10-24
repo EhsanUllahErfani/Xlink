@@ -64,7 +64,9 @@ class ControlServer:
         hello_extra: Callable[[], dict[str, Any]] | None = None,
         token: Callable[[], str | None] | None = None,
         files: FileSink | None = None,
+        terminal: Any = None,
     ) -> None:
+        self.terminal = terminal  # has async attach(msg, reader, writer)
         self.hello_extra = hello_extra
         self.host = host
         self.port = port
@@ -192,6 +194,10 @@ class ControlServer:
                 except ValueError:
                     await session.send({"type": "error", "message": "bad message"})
                     continue
+                if msg.get("type") == "terminal" and self.terminal is not None:
+                    await session.send({"type": "terminal", "ok": True})
+                    await self.terminal.attach(msg, reader, writer)
+                    break  # the connection belonged to the terminal
                 if msg.get("type") == "subscribe":
                     session.subscribed = True
                     await session.send({"type": "subscribe", "ok": True})

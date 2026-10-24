@@ -35,6 +35,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".TerminalActivity"
+            android:exported="false"
+            android:label="Terminal on laptop"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".LinkService"
             android:exported="false"

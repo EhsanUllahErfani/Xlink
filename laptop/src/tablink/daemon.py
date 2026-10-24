@@ -235,6 +235,7 @@ def build() -> Daemon:
     from tablink.services.files import FileReceiver
     from tablink.services.folder_sync import AdbRemote, FolderSync
     from tablink.services.scrcpy import ScrcpyService
+    from tablink.services.terminal import Terminal
     from tablink.services.wake import wake_info, wake_screen
     from tablink.tailscale import Tailscale, find_tablet
 
@@ -348,6 +349,7 @@ def build() -> Daemon:
         },
         hello_extra=hello,
         token=lambda: control_token(keyring),
+        terminal=Terminal(),
         files=FileReceiver(on_saved=lambda name: private_notify("Received from tablet", name)),
     )
 

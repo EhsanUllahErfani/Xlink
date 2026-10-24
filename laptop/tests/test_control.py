@@ -194,3 +194,38 @@ async def test_file_upload_lands_in_folder(tmp_path: Any) -> None:
         await srv.stop()
     assert reply["ok"] and reply["saved"] == "bashrc"  # no folders, no hidden files
     assert (tmp_path / "bashrc").read_bytes() == data
+
+
+async def test_terminal_streams_command_output_live() -> None:
+    from tablink.services.terminal import Terminal
+
+    srv = ControlServer(0, {}, token=lambda: TOKEN, terminal=Terminal(shell="/bin/sh"))
+    await srv.start()
+    try:
+        reader, writer, _ = await open_authed(srv.bound_port)
+        writer.write(b'{"type": "terminal", "rows": 24, "cols": 80}\n')
+        await writer.drain()
+        assert json.loads(await reader.readline())["ok"]
+        writer.write(b"for i in 1 2 3; do echo line-$i; sleep 0.1; done; exit\n")
+        await writer.drain()
+        out = b""
+        async with asyncio.timeout(10):
+            while chunk := await reader.read(4096):
+                out += chunk
+        assert b"line-1" in out and b"line-3" in out  # streamed, then the shell exited
+        writer.close()
+    finally:
+        await srv.stop()
+
+
+async def test_terminal_needs_pairing() -> None:
+    from tablink.services.terminal import Terminal
+
+    srv = ControlServer(0, {}, token=lambda: TOKEN, terminal=Terminal(shell="/bin/sh"))
+    await srv.start()
+    try:
+        reader, writer, auth = await open_authed(srv.bound_port, token="wrong")
+        assert auth["ok"] is False and await reader.readline() == b""
+        writer.close()
+    finally:
+        await srv.stop()
