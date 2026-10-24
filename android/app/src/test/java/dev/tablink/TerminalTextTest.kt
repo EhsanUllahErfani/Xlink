@@ -41,4 +41,15 @@ class TerminalTextTest {
         assert(text.length <= 60)
         assert(text.contains("line 99"))
     }
+
+    @Test
+    fun longStatusCodeSplitAcrossChunksIsDropped() {
+        // systemd's OSC 3008 context code, as Ubuntu's shell sends it, cut in two.
+        val code = "\u001B]3008;start=fe2b8bdd;type=shell;machineid=bf90255c;user=alex;" +
+            "hostname=alex-laptop;bootid=560900f0;pid=159338;cwd=/home/alex\u001B\\"
+        val t = TerminalText()
+        t.feed(code.substring(0, 70))
+        t.feed(code.substring(70) + "alex@laptop:~$ ")
+        assertEquals("alex@laptop:~$ ", t.toString())
+    }
 }

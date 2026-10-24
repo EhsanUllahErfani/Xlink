@@ -42,6 +42,12 @@ import kotlinx.coroutines.withContext
 
 /** F6: a shell on the laptop. Run scripts, training jobs or builds and watch them live. */
 class TerminalActivity : ComponentActivity() {
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Any TabLink screen in front may send the clipboard (Android allows reading it then).
+        if (hasFocus) LinkService.sendClipboard(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

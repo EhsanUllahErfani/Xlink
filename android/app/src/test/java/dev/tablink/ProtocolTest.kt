@@ -109,4 +109,11 @@ class ProtocolTest {
         assertEquals(0x60.toByte(), p[6])
         assertEquals(0x03.toByte(), p[101])
     }
+
+    @Test
+    fun clipReplyIsNotAClipboardPush() {
+        // The laptop answers our clip send with {"type":"clip","ok":true}: no text field.
+        assertEquals(null, Protocol.stringField("{\"type\": \"clip\", \"ok\": true}", "text"))
+        assertEquals("hi", Protocol.stringField("{\"type\": \"clip\", \"text\": \"hi\"}", "text"))
+    }
 }

@@ -10,15 +10,16 @@ class TerminalText(private val maxChars: Int = 200_000) {
     private var pending = ""
 
     fun feed(chunk: String) {
-        var s = pending + chunk
+        // Remove every complete escape code first; whatever ESC is left is an unfinished code
+        // cut at the chunk end (status codes like systemd's OSC 3008 run long): keep it for
+        // the next chunk.
+        var s = ESCAPES.replace(pending + chunk, "")
         pending = ""
-        // An escape sequence cut in half at the chunk end: keep it for the next chunk.
         val lastEsc = s.lastIndexOf('\u001B')
-        if (lastEsc >= 0 && !COMPLETE.matches(s.substring(lastEsc)) && s.length - lastEsc < 64) {
-            pending = s.substring(lastEsc)
+        if (lastEsc >= 0) {
+            if (s.length - lastEsc < 4096) pending = s.substring(lastEsc)
             s = s.substring(0, lastEsc)
         }
-        s = ESCAPES.replace(s, "")
         for (c in s) {
             val line = lines.last()
             when (c) {
@@ -44,6 +45,5 @@ class TerminalText(private val maxChars: Int = 200_000) {
 
     companion object {
         private val ESCAPES = Regex("\u001B\\[[0-?]*[ -/]*[@-~]|\u001B\\][^\u0007\u001B]*(\u0007|\u001B\\\\)|\u001B[()][0-9A-Za-z]|\u001B[=>78NOMDEHc]")
-        private val COMPLETE = Regex("(?s)\u001B(\\[[0-?]*[ -/]*[@-~]|\\][^\u0007\u001B]*(\u0007|\u001B\\\\)|[()][0-9A-Za-z]|[=>78NOMDEHc]).*")
     }
 }

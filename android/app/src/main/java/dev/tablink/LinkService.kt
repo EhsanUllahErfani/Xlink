@@ -70,6 +70,7 @@ class LinkService : Service() {
                 conn.write("{\"type\":\"subscribe\"}\n")
                 conn.read()
                 connected = true
+                android.util.Log.i("TabLink", "link to laptop up")
                 val sender = scope.launch {
                     while (isActive) {
                         val line = outbox.poll(1, TimeUnit.SECONDS) ?: continue
@@ -80,7 +81,8 @@ class LinkService : Service() {
                     while (true) {
                         val line = conn.readLine() ?: break
                         when (Protocol.parse(line).type) {
-                            "clip" -> applyClip(Protocol.parse(line).message)
+                            // A push carries "text"; the reply to our own clip send does not.
+                            "clip" -> Protocol.stringField(line, "text")?.let { applyClip(it) }
                             "wifi" -> rememberHotspot(line)
                         }
                     }
@@ -122,6 +124,7 @@ class LinkService : Service() {
     }
 
     private fun applyClip(text: String) {
+        android.util.Log.i("TabLink", "clipboard from laptop: ${text.length} chars")
         lastFromLaptop = text
         val cm = getSystemService(ClipboardManager::class.java)
         android.os.Handler(mainLooper).post {
@@ -188,9 +191,16 @@ class LinkService : Service() {
         /** Send the tablet clipboard to the laptop if it is new. Call while in the foreground. */
         fun sendClipboard(context: Context): Boolean {
             val cm = context.getSystemService(ClipboardManager::class.java)
-            val text = cm.primaryClip?.takeIf { it.itemCount > 0 }
+            val clip = cm.primaryClip
+            if (clip == null) {
+                // Android (or HyperOS's clipboard permission) refused the read.
+                android.util.Log.i("TabLink", "clipboard not readable now (hasPrimaryClip=${cm.hasPrimaryClip()})")
+                return false
+            }
+            val text = clip.takeIf { it.itemCount > 0 }
                 ?.getItemAt(0)?.coerceToText(context)?.toString() ?: return false
             if (text.isEmpty() || text == lastFromLaptop || text == lastSent) return false
+            android.util.Log.i("TabLink", "sending clipboard to laptop: ${text.length} chars")
             lastSent = text
             enqueue(Protocol.clip(text.take(512 * 1024)))
             return true

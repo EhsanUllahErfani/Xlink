@@ -86,6 +86,7 @@ class ClipboardSync:
                      type(e).__name__)  # fmt: skip
             return False
         self._last = text  # don't echo it back
+        log.info("tablet clipboard applied on the laptop (%d chars)", len(text))
         return True
 
     async def check(self) -> None:
@@ -98,7 +99,10 @@ class ClipboardSync:
             return
         if text != self._last and text:
             self._last = text
-            await self.push(text[:MAX_TEXT])
+            sent = await self.push(text[:MAX_TEXT])
+            log.info(
+                "laptop clipboard changed (%d chars): sent to %s tablet link(s)", len(text), sent
+            )
 
     async def run(self) -> None:
         while True:
